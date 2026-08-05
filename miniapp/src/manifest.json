@@ -1,0 +1,20 @@
+{
+  "name": "分锅大会",
+  "appid": "wxcb82586dd8419044",
+  "description": "Dota 2 比赛 AI 复盘分析工具",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "mp-weixin": {
+    "appid": "wxcb82586dd8419044",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "postcss": true,
+      "minified": true
+    },
+    "usingComponents": true,
+    "permission": {},
+    "requiredPrivateInfos": []
+  }
+}

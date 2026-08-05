@@ -1,0 +1,40 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "分锅大会",
+        "navigationBarBackgroundColor": "#1a1a17",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#111110"
+      }
+    },
+    {
+      "path": "pages/analysis/analysis",
+      "style": {
+        "navigationBarTitleText": "分析结果",
+        "navigationBarBackgroundColor": "#1a1a17",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#111110"
+      }
+    },
+    {
+      "path": "pages/share/share",
+      "style": {
+        "navigationBarTitleText": "分享分析",
+        "navigationBarBackgroundColor": "#1a1a17",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#111110"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "分锅大会",
+    "navigationBarBackgroundColor": "#1a1a17",
+    "backgroundColor": "#111110"
+  },
+  "easycom": {
+    "autoscan": true
+  }
+}
