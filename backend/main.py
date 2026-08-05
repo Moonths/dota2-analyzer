@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database.db import init_db
-from routers import matches, analysis, share, auth
+from routers import matches, analysis, share, auth, proxy
 
 
 @asynccontextmanager
@@ -31,6 +31,7 @@ app.include_router(matches.router)
 app.include_router(analysis.router)
 app.include_router(share.router)
 app.include_router(auth.router)
+app.include_router(proxy.router)
 
 
 @app.get("/api/health")

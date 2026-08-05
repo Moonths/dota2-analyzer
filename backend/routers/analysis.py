@@ -41,7 +41,7 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
     # 检查每日配额（缓存未命中才检查）
     from datetime import date
     today = date.today().isoformat()
-    async with db.execute("SELECT count FROM daily_quota WHERE openid = ? AND date = ?", (today,)) as cursor:
+    async with db.execute("SELECT count FROM daily_quota WHERE openid = ? AND date = ?", (openid, today)) as cursor:
         quota_row = await cursor.fetchone()
     if quota_row and quota_row["count"] >= 1:
         await db.close()
@@ -85,7 +85,7 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
 
     # 更新每日配额
     await db.execute(
-        "INSERT INTO daily_quota (openid, date, count) VALUES (?, 1) ON CONFLICT(date) DO UPDATE SET count = count + 1",
+        "INSERT INTO daily_quota (openid, date, count) VALUES (?, ?, 1) ON CONFLICT(openid, date) DO UPDATE SET count = count + 1",
         (openid, today)
     )
     await db.commit()

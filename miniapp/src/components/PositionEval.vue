@@ -1,5 +1,8 @@
 <script setup>
-const props = defineProps({
+import { heroImg } from '../utils/image.js'
+
+
+defineProps({
   eval: { type: Object, required: true },
   playerCard: { type: Object, default: null },
 })
@@ -22,7 +25,7 @@ function formatStat(n) {
     <!-- Row 1: hero + name/pos + score + tag -->
     <view class="eval-top">
       <view class="eval-hero" v-if="playerCard">
-        <image :src="playerCard.hero_icon" mode="aspectFill" class="hero-icon" />
+        <image :src="heroImg(playerCard.hero_icon)" mode="aspectFill" class="hero-icon" />
         <view class="hero-info">
           <text class="pos-badge">{{ eval.position }}号位</text>
           <text class="player-name">{{ eval.player_name }}</text>

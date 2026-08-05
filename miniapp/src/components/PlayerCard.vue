@@ -1,4 +1,5 @@
 <script setup>
+import { heroImg } from '../utils/image.js'
 defineProps({
   player: { type: Object, required: true },
 })
@@ -7,7 +8,7 @@ defineProps({
 <template>
   <view class="player-card">
     <view class="card-header">
-      <image :src="player.hero_icon" mode="aspectFill" class="hero-avatar" />
+      <image :src="heroImg(player.hero_icon)" mode="aspectFill" class="hero-avatar" />
       <view class="header-info">
         <text class="player-name">{{ player.player_name }}</text>
         <text class="hero-name">{{ player.hero_name }}</text>

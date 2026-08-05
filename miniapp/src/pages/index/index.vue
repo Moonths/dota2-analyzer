@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../../api/index.js'
+import { heroImg } from '../../utils/image.js'
 import { drawHomeCard } from '../../utils/shareImage.js'
 
 const HISTORY_KEY = 'dota2_search_history'
@@ -157,7 +158,7 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
         <text class="section-title">{{ playerName }} 的最近比赛</text>
         <view class="match-grid">
           <view v-for="m in matches" :key="m.match_id" class="match-card" @click="analyzeMatch(m.match_id)">
-            <image :src="m.hero_icon" :alt="m.hero_name" class="hero-img" mode="aspectFill" />
+            <image :src="heroImg(m.hero_icon)" :alt="m.hero_name" class="hero-img" mode="aspectFill" />
             <view class="match-info">
               <text class="match-hero" style="margin-right: 10rpx;">{{ m.hero_name }}</text>
               <text class="match-kda">{{ m.kills }}/{{ m.deaths }}/{{ m.assists }}</text>
