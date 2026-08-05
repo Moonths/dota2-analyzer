@@ -31,7 +31,7 @@ async def get_player_recent_matches(player_id: int, limit: int = 20):
             result.append({
                 "match_id": m.get("match_id"),
                 "hero_name": cn_name(en_name) or f"Hero_{hero_id}",
-                "hero_icon": f"/api/hero-img/{hero.get('name', 'unknown').replace('npc_dota_hero_', '')}.png",
+                "hero_icon": f"/hero-img/{hero.get('name', 'unknown').replace('npc_dota_hero_', '')}.png",
                 "kills": m.get("kills", 0),
                 "deaths": m.get("deaths", 0),
                 "assists": m.get("assists", 0),
@@ -64,7 +64,7 @@ async def get_match_info(match_id: int):
             players.append({
                 "player_name": p.get("personaname", str(p.get("account_id", "Unknown"))),
                 "hero_name": cn_name(en_name) or f"Hero_{p.get('hero_id')}",
-                "hero_icon": f"/api/hero-img/{hero.get('name', 'unknown').replace('npc_dota_hero_', '')}.png",
+                "hero_icon": f"/hero-img/{hero.get('name', 'unknown').replace('npc_dota_hero_', '')}.png",
                 "kills": p.get("kills", 0),
                 "deaths": p.get("deaths", 0),
                 "assists": p.get("assists", 0),
