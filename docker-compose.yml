@@ -4,6 +4,8 @@ services:
   backend:
     build: ./backend
     container_name: dota2-backend
+    ports:
+      - "127.0.0.1:8001:8000"
     restart: unless-stopped
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
