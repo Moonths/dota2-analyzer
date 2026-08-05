@@ -66,8 +66,9 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
 
     await db.execute(
         """INSERT INTO match_analyses (id, match_id, share_id, provider, model, raw_data, analysis_result, player_names, hero_names, skill_level, avg_mmr, radiant_win, duration, openid)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
+            f"{req.match_id}_{provider}",
             req.match_id,
             share_id,
             provider,
