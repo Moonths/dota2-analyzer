@@ -1,4 +1,4 @@
-const BASE = 'http://127.0.0.1:8000/api'
+const BASE = 'https://maojike.me/dota-api'
 
 function request(url, options = {}) {
   return new Promise((resolve, reject) => {

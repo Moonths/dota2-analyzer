@@ -138,7 +138,7 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
 
     <view v-if="searchMode==='player' && matches.length > 0" class="matches-section">
       <view class="container">
-        <text class="section-title">{{ playerName }} 的最近比赛</text>r
+        <text class="section-title">{{ playerName }} 的最近比赛</text>
         <view class="match-grid">
           <view v-for="m in matches" :key="m.match_id" class="match-card" @click="analyzeMatch(m.match_id)">
             <image :src="m.hero_icon" :alt="m.hero_name" class="hero-img" mode="aspectFill" />
