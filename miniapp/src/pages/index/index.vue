@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../../api/index.js'
+import { drawHomeCard } from '../../utils/shareImage.js'
 
 const HISTORY_KEY = 'dota2_search_history'
 
@@ -14,9 +15,12 @@ const matches = ref([])
 const selectedProvider = ref('deepseek')
 const selectedModel = ref('deepseek-chat')
 const searchHistory = ref([])
+const shareImagePath = ref()
 const showHistory = ref(false)
+const shareImage = ref()
 
 onMounted(() => {
+  drawHomeCard().then(p => { shareImagePath.value = p })
   const saved = uni.getStorageSync('dota2_player_id')
   if (saved) playerId.value = saved
   loadHistory()
@@ -77,6 +81,13 @@ function analyzeMatch(id) {
 }
 
 function goDirectMatch() {
+
+function onShareAppMessage() {
+  return {
+    imageUrl: shareImagePath.value, title: '分锅大会 —— 谁尽力谁犯罪，AI判官为你揭晓',
+    path: '/pages/index/index',
+  }
+}
   const val = matchId.value.trim()
   const id = parseInt(val)
   if (!id) { error.value = '请输入有效的比赛ID'; return }
@@ -113,6 +124,11 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
               <view v-for="(h,i) in searchHistory" :key="i" class="history-item" @click="selectHistory(h)">
                 <text class="history-label">{{ h.label }}</text>
                 <text class="history-type">{{ h.type==='player'?'玩家':'比赛' }}</text>
+
+        <view v-if="loading" class="search-loading">
+          <view class="search-spinner"><view class="spin-ring"></view></view>
+          <text class="search-loading-text">正在调取战绩数据...</text>
+        </view>
               </view>
             </view>
           </view>
@@ -157,6 +173,7 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
       </view>
     </view>
   </view>
+  <canvas canvas-id="shareCanvas" style="position:fixed;left:-9999px;top:0;width:250px;height:200px"></canvas>
 </template>
 
 <style scoped>
@@ -175,6 +192,12 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
 .history-item:last-child{border-bottom:none}
 .history-label{font-size:26rpx;font-weight:600;color:var(--ink-1)}
 .history-type{font-size:22rpx;color:var(--ink-3);font-weight:500}
+.search-loading{display:flex;align-items:center;justify-content:center;gap:16rpx;margin-top:32rpx}
+.search-spinner{width:36rpx;height:36rpx;position:relative}
+.spin-ring{width:100%;height:100%;border-radius:50%;border:3rpx solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.search-loading-text{font-size:24rpx;color:var(--ink-2);font-weight:500}
+
 .error-msg{color:var(--red-400);margin-top:24rpx;font-size:26rpx;font-weight:500;display:block}
 .matches-section{padding:48rpx 0 160rpx}
 .section-title{font-size:36rpx;font-weight:700;margin-bottom:40rpx;letter-spacing:-.01em;display:block}

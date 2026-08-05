@@ -1,3 +1,5 @@
+import { getOpenid } from '../utils/auth.js'
+
 const BASE = 'https://maojike.me/dota-api'
 
 function request(url, options = {}) {
@@ -35,7 +37,7 @@ export const api = {
   analyze(matchId, provider, model) {
     return request('/analyze', {
       method: 'POST',
-      body: JSON.stringify({ match_id: matchId, provider, model }),
+      body: JSON.stringify({ match_id: matchId, provider, model, openid: getOpenid() }),
     })
   },
   getProviders() {

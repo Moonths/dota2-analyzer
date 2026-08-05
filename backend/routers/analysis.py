@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api", tags=["analysis"])
 
 @router.post("/analyze")
 async def analyze_match_endpoint(req: AnalyzeRequest):
+    openid = req.openid or "anonymous"
     """分析一场比赛"""
     try:
         match_data = await get_match(req.match_id)
@@ -27,8 +28,8 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
     # 检查缓存
     db = await get_db()
     async with db.execute(
-        "SELECT analysis_result FROM match_analyses WHERE match_id = ? AND provider = ?",
-        (req.match_id, provider)
+        "SELECT analysis_result FROM match_analyses WHERE match_id = ? AND provider = ? AND openid = ?",
+        (req.match_id, provider, openid)
     ) as cursor:
         row = await cursor.fetchone()
 
@@ -40,7 +41,7 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
     # 检查每日配额（缓存未命中才检查）
     from datetime import date
     today = date.today().isoformat()
-    async with db.execute("SELECT count FROM daily_quota WHERE date = ?", (today,)) as cursor:
+    async with db.execute("SELECT count FROM daily_quota WHERE openid = ? AND date = ?", (today,)) as cursor:
         quota_row = await cursor.fetchone()
     if quota_row and quota_row["count"] >= 1:
         await db.close()
@@ -64,10 +65,9 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
     hero_names = json.dumps([c["hero_name"] for c in result.get("player_cards", [])])
 
     await db.execute(
-        """INSERT INTO match_analyses (id, match_id, share_id, provider, model, raw_data, analysis_result, player_names, hero_names, skill_level, avg_mmr, radiant_win, duration)
+        """INSERT INTO match_analyses (id, match_id, share_id, provider, model, raw_data, analysis_result, player_names, hero_names, skill_level, avg_mmr, radiant_win, duration, openid)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            f"{req.match_id}_{provider}",
             req.match_id,
             share_id,
             provider,
@@ -85,8 +85,8 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
 
     # 更新每日配额
     await db.execute(
-        "INSERT INTO daily_quota (date, count) VALUES (?, 1) ON CONFLICT(date) DO UPDATE SET count = count + 1",
-        (today,)
+        "INSERT INTO daily_quota (openid, date, count) VALUES (?, 1) ON CONFLICT(date) DO UPDATE SET count = count + 1",
+        (openid, today)
     )
     await db.commit()
     await db.close()

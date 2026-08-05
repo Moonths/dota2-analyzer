@@ -1,3 +1,12 @@
+<script>
+import { onLaunch } from '@dcloudio/uni-app'
+import { login } from './utils/auth.js'
+export default {
+  setup() {
+    onLaunch(() => { login() })
+  }
+}
+</script>
 <template>
   <view class="app">
     <!-- pages.json already configures nav bar, no header needed in template -->

@@ -7,6 +7,7 @@ class AnalyzeRequest(BaseModel):
     match_id: int
     provider: Optional[str] = None
     model: Optional[str] = None
+    openid: Optional[str] = None
 
 
 class PlayerSearchRequest(BaseModel):

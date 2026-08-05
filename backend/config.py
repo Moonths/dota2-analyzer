@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     default_ai_provider: str = "deepseek"
     database_url: str = "sqlite+aiosqlite:///./data/dota2.db"
     share_base_url: str = "http://localhost:8000"
+    wechat_appid: str = ""
+    wechat_secret: str = ""
 
     class Config:
         env_file = ".env"
