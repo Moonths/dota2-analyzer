@@ -81,6 +81,7 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
             result.get("avg_mmr"),
             result.get("radiant_win", False),
             result.get("duration", 0),
+            openid,
         ),
     )
 
