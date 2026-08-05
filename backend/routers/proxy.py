@@ -6,7 +6,7 @@ router = APIRouter(prefix="/api", tags=["proxy"])
 
 @router.get("/hero-img/{hero_name}")
 async def proxy_hero_image(hero_name: str):
-    url = f"https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/{hero_name}.png"
+    url = f"https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/{hero_name}"
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(url)
         return StreamingResponse(
