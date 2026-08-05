@@ -38,6 +38,8 @@ async def init_db():
         CREATE TABLE IF NOT EXISTS daily_quota (
             openid TEXT NOT NULL,
             date TEXT NOT NULL,
+            count INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (openid, date)
         );
             count INTEGER DEFAULT 0,
