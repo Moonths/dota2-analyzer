@@ -341,6 +341,8 @@ async def analyze_match(match_data: dict, provider: str = "deepseek", model: str
             pe["is_qualified"] = pe.get("is_qualified", True)
             pe["score"] = max(0, min(100, pe.get("score", 50)))
             _corrected_evals.append(pe)
+    # 按 (天辉优先, 位置升序) 排序，确保与 player_cards/radiant_players/dire_players 顺序一致
+    _corrected_evals.sort(key=lambda e: (not e.get("is_radiant", False), e.get("position", 99)))
     ai_result["position_evals"] = _corrected_evals
 
     return {

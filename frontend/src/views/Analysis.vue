@@ -42,13 +42,10 @@ const filteredEvals = computed(() => {
   const isRadiant = activeTeam.value === 'radiant'
   const cards = isRadiant ? result.value.radiant_players : result.value.dire_players
   if (!cards || !cards.length) return []
-  const evals = result.value.position_evals || []
-  const teamEvals = evals.filter(e => e.is_radiant === isRadiant)
+  const teamEvals = (result.value.position_evals || []).filter(e => e.is_radiant === isRadiant)
   return cards
-    .map(card => {
-      const pe = teamEvals.find(e => e.player_name === card.player_name)
-        || teamEvals.find(e => e.hero_name === card.hero_name)
-        || teamEvals.find(e => e.position === card.position)
+    .map((card, i) => {
+      const pe = teamEvals[i]
       return pe ? { ...pe, _card: card } : null
     })
     .filter(Boolean) as any
