@@ -6,7 +6,8 @@ const BASE = (function() {
   return '/dota-api'
   // #endif
   // #ifndef H5
-  return 'https://maojike.me/dota-api'
+  return 'https://maojike.me/dota-api'  // 生产环境
+  // return 'http://localhost:8000/api'  // 本地开发
   // #endif
 })()
 
@@ -53,5 +54,8 @@ export const api = {
   },
   getSharedAnalysis(shareId) {
     return request(`/share/${shareId}`)
+  },
+  smurfCheck(playerId) {
+    return request(`/smurf-check/${playerId}?openid=${getOpenid()}`)
   },
 }

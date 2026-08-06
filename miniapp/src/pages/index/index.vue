@@ -18,7 +18,13 @@ const selectedModel = ref('deepseek-chat')
 const searchHistory = ref([])
 const shareImagePath = ref()
 const showHistory = ref(false)
-const shareImage = ref()
+
+// ── 捕鱼执法 ──
+const smurfId = ref('')
+const smurfLoading = ref(false)
+const smurfError = ref('')
+const smurfResult = ref(null)
+const smurfExpanded = ref(false)
 
 onMounted(() => {
   drawHomeCard().then(p => { shareImagePath.value = p })
@@ -43,7 +49,8 @@ function saveHistory(type, value, label) {
 
 function selectHistory(item) {
   if (item.type === 'player') { searchMode.value = 'player'; playerId.value = item.value }
-  else { searchMode.value = 'match'; matchId.value = item.value }
+  else if (item.type === 'match') { searchMode.value = 'match'; matchId.value = item.value }
+  else if (item.type === 'smurf') { searchMode.value = 'smurf'; smurfId.value = item.value }
   showHistory.value = false
 }
 
@@ -82,6 +89,13 @@ function analyzeMatch(id) {
 }
 
 function goDirectMatch() {
+  const val = matchId.value.trim()
+  const id = parseInt(val)
+  if (!id) { error.value = '请输入有效的比赛ID'; return }
+  saveHistory('match', val, `比赛 ${val}`)
+  showHistory.value = false
+  analyzeMatch(id)
+}
 
 function onShareAppMessage() {
   return {
@@ -89,12 +103,36 @@ function onShareAppMessage() {
     path: '/pages/index/index',
   }
 }
-  const val = matchId.value.trim()
-  const id = parseInt(val)
-  if (!id) { error.value = '请输入有效的比赛ID'; return }
-  saveHistory('match', val, `比赛 ${val}`)
-  showHistory.value = false
-  analyzeMatch(id)
+
+// ── 捕鱼执法 ──
+async function runSmurfCheck() {
+  if (smurfLoading.value) return
+  const id = parseInt(smurfId.value.trim())
+  if (!id) { smurfError.value = '请输入有效的玩家ID'; return }
+  smurfLoading.value = true; smurfError.value = ''
+  smurfResult.value = null; smurfExpanded.value = false
+  try {
+    smurfResult.value = await api.smurfCheck(id)
+    saveHistory('smurf', id.toString(), `查小号 ${id}`)
+    showHistory.value = false
+  } catch (e) {
+    smurfError.value = e.message || '检测失败'
+  } finally { smurfLoading.value = false }
+}
+
+function smurfLabel(score) {
+  if (score >= 0.85) return '极高'
+  if (score >= 0.70) return '很高'
+  if (score >= 0.55) return '较高'
+  if (score >= 0.40) return '中等'
+  return '较低'
+}
+
+function smurfColor(score) {
+  if (score >= 0.70) return 'var(--down)'
+  if (score >= 0.55) return 'var(--warn)'
+  if (score >= 0.40) return 'var(--accent)'
+  return 'var(--up)'
 }
 
 function onInputFocus() { showHistory.value = searchHistory.value.length > 0 }
@@ -114,42 +152,86 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
         <text class="hero-sub">谁勇敢 谁暴毙 又是谁没人情味？</text>
 
         <view class="mode-tabs">
-          <view :class="['mode-tab',{active:searchMode==='player'}]" @click="searchMode='player'"><text>搜玩家找比赛</text></view>
-          <view :class="['mode-tab',{active:searchMode==='match'}]" @click="searchMode='match'"><text>直接输入比赛ID</text></view>
+          <view :class="['mode-tab',{active:searchMode==='player'}]" @click="searchMode='player'"><text>搜玩家</text></view>
+          <view :class="['mode-tab',{active:searchMode==='match'}]" @click="searchMode='match'"><text>比赛ID</text></view>
+          <view :class="['mode-tab',{active:searchMode==='smurf'}]" @click="searchMode='smurf'"><text>捕鱼执法</text></view>
         </view>
 
+        <!-- 搜玩家 -->
         <view v-if="searchMode==='player'" class="search-bar">
           <view class="search-input-wrap">
-            <input v-model="playerId" type="number" placeholder="输入 Dota 2 玩家ID（Steam32 ID）" class="search-input" @confirm="searchPlayer" @focus="onInputFocus" @blur="onInputBlur" />
+            <input v-model="playerId" type="number" placeholder="输入玩家ID（Steam32 ID）" class="search-input" @confirm="searchPlayer" @focus="onInputFocus" @blur="onInputBlur" />
             <view class="history-dropdown" v-if="showHistory && searchHistory.length > 0">
               <view v-for="(h,i) in searchHistory" :key="i" class="history-item" @click="selectHistory(h)">
                 <text class="history-label">{{ h.label }}</text>
-                <text class="history-type">{{ h.type==='player'?'玩家':'比赛' }}</text>
-
-        <view v-if="loading" class="search-loading">
-          <view class="search-spinner"><view class="spin-ring"></view></view>
-          <text class="search-loading-text">正在调取战绩数据...</text>
-        </view>
+                <text class="history-type">{{ h.type==='player'?'玩家':h.type==='match'?'比赛':'查小号' }}</text>
               </view>
             </view>
           </view>
           <view class="btn btn-primary" @click="searchPlayer"><text>{{ loading?'搜索中...':'搜索比赛' }}</text></view>
         </view>
 
-        <view v-else class="search-bar">
+        <!-- 比赛ID -->
+        <view v-else-if="searchMode==='match'" class="search-bar">
           <view class="search-input-wrap">
             <input v-model="matchId" type="number" placeholder="输入比赛ID" class="search-input" @confirm="goDirectMatch" @focus="onInputFocus" @blur="onInputBlur" />
             <view class="history-dropdown" v-if="showHistory && searchHistory.length > 0">
               <view v-for="(h,i) in searchHistory" :key="i" class="history-item" @click="selectHistory(h)">
                 <text class="history-label">{{ h.label }}</text>
-                <text class="history-type">{{ h.type==='player'?'玩家':'比赛' }}</text>
+                <text class="history-type">{{ h.type==='player'?'玩家':h.type==='match'?'比赛':'查小号' }}</text>
               </view>
             </view>
           </view>
           <view class="btn btn-primary" @click="goDirectMatch"><text>❗开庭❗</text></view>
         </view>
 
+        <!-- 捕鱼执法 -->
+        <view v-else class="search-bar">
+          <view class="search-input-wrap">
+            <input v-model="smurfId" type="number" placeholder="输入玩家ID（Steam32 ID）" class="search-input" @confirm="runSmurfCheck" @focus="onInputFocus" @blur="onInputBlur" />
+            <view class="history-dropdown" v-if="showHistory && searchHistory.length > 0">
+              <view v-for="(h,i) in searchHistory" :key="i" class="history-item" @click="selectHistory(h)">
+                <text class="history-label">{{ h.label }}</text>
+                <text class="history-type">{{ h.type==='player'?'玩家':h.type==='match'?'比赛':'查小号' }}</text>
+              </view>
+            </view>
+          </view>
+          <view class="btn btn-primary" @click="runSmurfCheck"><text>{{ smurfLoading?'检测中...':'检测小号' }}</text></view>
+        </view>
+
+        <view v-if="loading" class="search-loading">
+          <view class="search-spinner"><view class="spin-ring"></view></view>
+          <text class="search-loading-text">正在调取战绩数据...</text>
+        </view>
+
         <text v-if="error" class="error-msg">{{ error }}</text>
+
+        <!-- 捕鱼结果 -->
+        <view v-if="smurfResult && searchMode==='smurf'" class="smurf-result">
+          <view class="smurf-score-row">
+            <view class="smurf-score-bar">
+              <view class="smurf-score-fill" :style="{width: Math.round(smurfResult.score*100)+'%', background: smurfColor(smurfResult.score)}"></view>
+            </view>
+            <text class="smurf-score-num" :style="{color: smurfColor(smurfResult.score)}">{{ Math.round(smurfResult.score*100) }}%</text>
+            <text class="smurf-score-label" :style="{color: smurfColor(smurfResult.score)}">{{ smurfLabel(smurfResult.score) }}</text>
+          </view>
+          <text class="smurf-roast">{{ smurfResult.roast }}</text>
+          <view v-if="smurfExpanded" class="smurf-details">
+            <view v-for="s in smurfResult.signals" :key="s.label" class="smurf-signal">
+              <view class="signal-header">
+                <text class="signal-label">{{ s.label }}</text>
+                <text class="signal-value">{{ s.value }}</text>
+              </view>
+              <view class="signal-bar-bg">
+                <view class="signal-bar-fill" :style="{width: Math.round(s.score*100)+'%'}"></view>
+              </view>
+              <text class="signal-detail">{{ s.detail }}</text>
+            </view>
+          </view>
+          <view class="smurf-toggle" @click="smurfExpanded=!smurfExpanded">
+            <text>{{ smurfExpanded ? '收起证据 ▲' : '展开证据 ▼' }}</text>
+          </view>
+        </view>
       </view>
     </view>
 
@@ -183,7 +265,7 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
 .hero-sub{color:var(--text-secondary);margin-bottom:14rpx;font-size:30rpx;font-weight:500;line-height:2.0;display:block;padding:0 20rpx}
 .hero-sub:last-of-type{margin-bottom:52rpx}
 .mode-tabs{display:inline-flex;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:40rpx}
-.mode-tab{padding:18rpx 44rpx;font-size:26rpx;font-weight:600;color:var(--text-secondary)}
+.mode-tab{padding:18rpx 32rpx;font-size:26rpx;font-weight:600;color:var(--text-secondary)}
 .mode-tab.active{background:var(--accent);color:var(--on-accent)}
 .search-bar{display:flex;gap:24rpx;justify-content:center;align-items:flex-start;flex-wrap:wrap;padding:0 20rpx}
 .search-input-wrap{position:relative;flex-shrink:0}
@@ -217,4 +299,23 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
 .tag-win{background:rgba(63,185,80,.1);color:var(--green-400)}
 .tag-loss{background:rgba(248,81,73,.1);color:var(--red-400)}
 .container{padding:0 32rpx}
+
+/* ── 捕鱼结果 ── */
+.smurf-result{margin-top:40rpx;padding:32rpx;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);text-align:left}
+.smurf-score-row{display:flex;align-items:center;gap:16rpx;margin-bottom:20rpx}
+.smurf-score-bar{flex:1;height:12rpx;background:var(--panel-2);border-radius:6rpx;overflow:hidden}
+.smurf-score-fill{height:100%;border-radius:6rpx}
+.smurf-score-num{font-size:36rpx;font-weight:800;min-width:80rpx;text-align:right}
+.smurf-score-label{font-size:22rpx;font-weight:700;background:rgba(255,255,255,.05);padding:4rpx 16rpx;border-radius:var(--r-sm)}
+.smurf-roast{font-size:26rpx;color:var(--ink-2);line-height:1.6;font-style:italic;margin-bottom:16rpx;display:block}
+.smurf-details{margin-top:16rpx}
+.smurf-signal{margin-bottom:16rpx}
+.signal-header{display:flex;justify-content:space-between;font-size:24rpx;margin-bottom:6rpx}
+.signal-label{color:var(--ink-3);font-weight:500}
+.signal-value{color:var(--ink-2);font-weight:600}
+.signal-bar-bg{height:6rpx;background:var(--panel-2);border-radius:3rpx;overflow:hidden;margin-bottom:4rpx}
+.signal-bar-fill{height:100%;background:var(--accent);border-radius:3rpx}
+.signal-detail{font-size:20rpx;color:var(--ink-3)}
+.smurf-toggle{margin-top:20rpx;text-align:center}
+.smurf-toggle text{font-size:24rpx;color:var(--accent);font-weight:600}
 </style>

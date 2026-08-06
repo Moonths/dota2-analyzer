@@ -44,6 +44,7 @@ class PlayerCard(BaseModel):
     obs_placed: int
     sen_placed: int
     is_winner: bool
+    account_id: int
 
 
 class TimelineEvent(BaseModel):

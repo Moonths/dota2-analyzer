@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from models.schemas import AnalyzeRequest, AnalysisResult
 from services.opendota import get_match
 from services.analyzer import analyze_match
-from database.db import get_db
+from database.db import get_db, check_and_deduct_quota
 from config import settings
 
 router = APIRouter(prefix="/api", tags=["analysis"])
@@ -14,7 +14,6 @@ router = APIRouter(prefix="/api", tags=["analysis"])
 @router.post("/analyze")
 async def analyze_match_endpoint(req: AnalyzeRequest):
     openid = req.openid or "anonymous"
-    """分析一场比赛"""
     try:
         match_data = await get_match(req.match_id)
     except Exception as e:
@@ -25,7 +24,6 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
 
     provider = req.provider or settings.default_ai_provider
 
-    # 检查缓存
     db = await get_db()
     async with db.execute(
         "SELECT analysis_result FROM match_analyses WHERE match_id = ? AND provider = ? AND openid = ?",
@@ -38,41 +36,35 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
         await db.close()
         return result
 
-    # 检查每日配额（缓存未命中才检查，DEV_MODE跳过）
-    if not settings.dev_mode:
-        from datetime import date
-        today = date.today().isoformat()
-        async with db.execute("SELECT count FROM daily_quota WHERE openid = ? AND date = ?", (openid, today)) as cursor:
-            quota_row = await cursor.fetchone()
-        if quota_row and quota_row["count"] >= 1:
-            await db.close()
-            raise HTTPException(status_code=429, detail="今天的新分析次数已用完，请明天再来！已分析过的比赛不受限制。")
+    if not await check_and_deduct_quota(openid, "analysis"):
+        raise HTTPException(
+            status_code=429,
+            detail="今天的新分析次数已用完，请明天再来！已分析过的比赛不受限制。"
+        )
 
-    # 释放数据库连接，避免 AI 分析期间长时间持锁导致并发写入报 database is locked
     await db.close()
 
-    # 执行 AI 分析
     try:
         result = await analyze_match(match_data, provider=provider, model=req.model)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 分析失败: {str(e)}")
 
-    # AI 分析完成后重新打开数据库连接写入结果
     db = await get_db()
 
-    # 生成分享 ID 并存储
     share_id = uuid.uuid4().hex[:12]
     result["share_id"] = share_id
     result["match_id"] = req.match_id
     result["provider"] = provider
     result["model"] = req.model or settings.default_ai_provider
 
-    # 提取选手名和英雄名
     player_names = json.dumps([c["player_name"] for c in result.get("player_cards", [])])
     hero_names = json.dumps([c["hero_name"] for c in result.get("player_cards", [])])
 
     await db.execute(
-        """INSERT INTO match_analyses (id, match_id, share_id, provider, model, raw_data, analysis_result, player_names, hero_names, skill_level, avg_mmr, radiant_win, duration, openid)
+        """INSERT INTO match_analyses
+           (id, match_id, share_id, provider, model, raw_data,
+            analysis_result, player_names, hero_names,
+            skill_level, avg_mmr, radiant_win, duration, openid)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             f"{req.match_id}_{provider}",
@@ -91,13 +83,6 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
             openid,
         ),
     )
-
-    # 更新每日配额（DEV_MODE跳过）
-    if not settings.dev_mode:
-        await db.execute(
-            "INSERT INTO daily_quota (openid, date, count) VALUES (?, ?, 1) ON CONFLICT(openid, date) DO UPDATE SET count = count + 1",
-            (openid, today)
-        )
     await db.commit()
     await db.close()
 
@@ -107,7 +92,6 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
 
 @router.get("/providers")
 async def list_providers():
-    """返回可用的 AI 提供商列表"""
     providers = []
     if settings.openai_api_key:
         providers.append({"id": "openai", "name": "OpenAI", "models": ["gpt-4o", "gpt-4o-mini"]})

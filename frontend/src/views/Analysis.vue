@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, type AnalysisResult } from '../api'
+import { api, type AnalysisResult, type SmurfResult } from '../api'
 import PlayerCard from '../components/PlayerCard.vue'
 import PositionEval from '../components/PositionEval.vue'
 import Timeline from '../components/Timeline.vue'
@@ -14,6 +14,12 @@ const loading = ref(true)
 const error = ref('')
 const shareCopied = ref(false)
 const activeTeam = ref<'radiant' | 'dire'>('radiant')
+
+// ── 小号检测 ──
+const smurfChecking = ref(false)
+const smurfResult = ref<SmurfResult | null>(null)
+const smurfError = ref('')
+const smurfExpanded = ref(false)
 
 onMounted(async () => {
   const provider = (route.query.provider as string) || undefined
@@ -37,11 +43,9 @@ const filteredEvals = computed(() => {
   const cards = isRadiant ? result.value.radiant_players : result.value.dire_players
   if (!cards || !cards.length) return []
   const evals = result.value.position_evals || []
-  // 先按阵营筛选，杜绝跨阵营评语串位
   const teamEvals = evals.filter(e => e.is_radiant === isRadiant)
   return cards
     .map(card => {
-      // 精确匹配：player_name > hero_name > position（仅在同阵营内查找）
       const pe = teamEvals.find(e => e.player_name === card.player_name)
         || teamEvals.find(e => e.hero_name === card.hero_name)
         || teamEvals.find(e => e.position === card.position)
@@ -67,6 +71,40 @@ function formatDuration(sec: number) {
   const m = Math.floor(sec / 60)
   const s = sec % 60
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+async function checkSmurf() {
+  const mvpAccountId = result.value?.mvp?.account_id
+  if (!mvpAccountId) {
+    smurfError.value = '无法获取MVP的玩家ID'
+    return
+  }
+  smurfChecking.value = true
+  smurfError.value = ''
+  smurfResult.value = null
+  smurfExpanded.value = false
+  try {
+    smurfResult.value = await api.smurfCheck(mvpAccountId)
+  } catch (e: any) {
+    smurfError.value = e.message || '检测失败'
+  } finally {
+    smurfChecking.value = false
+  }
+}
+
+function smurfScoreLabel(score: number): string {
+  if (score >= 0.85) return '极高'
+  if (score >= 0.70) return '很高'
+  if (score >= 0.55) return '较高'
+  if (score >= 0.40) return '中等'
+  return '较低'
+}
+
+function smurfScoreColor(score: number): string {
+  if (score >= 0.70) return 'var(--down)'
+  if (score >= 0.55) return 'var(--warn)'
+  if (score >= 0.40) return 'var(--accent)'
+  return 'var(--up)'
 }
 </script>
 
@@ -109,6 +147,40 @@ function formatDuration(sec: number) {
             <div class="card-badge mvp-badge">🏆 MVP</div>
             <PlayerCard :player="result.mvp" />
             <p class="card-reason">{{ result.mvp.reason }}</p>
+
+            <!-- 查小号 -->
+            <div class="smurf-action">
+              <button
+                class="smurf-btn"
+                @click="checkSmurf"
+                :disabled="smurfChecking"
+              >
+                🔍 {{ smurfChecking ? '检测中...' : '这人是小号吗？' }}
+              </button>
+              <p v-if="smurfError" class="smurf-error-inline">{{ smurfError }}</p>
+            </div>
+
+            <!-- 小号检测结果 -->
+            <div v-if="smurfResult" class="smurf-inline-result">
+              <div class="smurf-inline-score">
+                <span class="smurf-inline-num" :style="{ color: smurfScoreColor(smurfResult.score) }">
+                  {{ Math.round(smurfResult.score * 100) }}%
+                </span>
+                <span class="smurf-inline-label" :style="{ color: smurfScoreColor(smurfResult.score) }">
+                  {{ smurfScoreLabel(smurfResult.score) }}
+                </span>
+              </div>
+              <p class="smurf-inline-roast">{{ smurfResult.roast }}</p>
+              <div v-if="smurfExpanded" class="smurf-inline-details">
+                <div v-for="s in smurfResult.signals" :key="s.label" class="smurf-inline-signal">
+                  <span class="sis-label">{{ s.label }}</span>
+                  <span class="sis-value">{{ s.value }}</span>
+                </div>
+              </div>
+              <button class="smurf-toggle" @click="smurfExpanded = !smurfExpanded">
+                {{ smurfExpanded ? '收起 ▲' : '展开 ▼' }}
+              </button>
+            </div>
           </div>
           <div class="hero-card sg-card">
             <div class="card-badge sg-badge">🤡 背锅侠</div>
@@ -167,6 +239,34 @@ function formatDuration(sec: number) {
 .mvp-badge { background: var(--accent); color: var(--on-accent); }
 .sg-badge { background: #3a3a3a; color: #ccc; }
 .card-reason { margin-top: 14px; font-size: 13px; color: var(--ink-2); line-height: 1.6; }
+
+/* ── 小号检测 ── */
+.smurf-action { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.smurf-btn {
+  background: none; border: 1px solid var(--border);
+  padding: 6px 14px; border-radius: var(--r-sm);
+  font-size: 12px; color: var(--ink-2); font-weight: 600;
+  cursor: pointer; transition: all var(--transition);
+}
+.smurf-btn:hover { border-color: var(--accent); color: var(--accent); }
+.smurf-error-inline { font-size: 12px; color: var(--red-400); margin-top: 6px; }
+
+.smurf-inline-result { margin-top: 10px; }
+.smurf-inline-score { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.smurf-inline-num { font-size: 18px; font-weight: 800; }
+.smurf-inline-label { font-size: 11px; font-weight: 700; background: rgba(255,255,255,.05); padding: 1px 8px; border-radius: var(--r-sm); }
+.smurf-inline-roast { font-size: 12px; color: var(--ink-2); line-height: 1.6; font-style: italic; margin-bottom: 8px; }
+.smurf-inline-details { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 6px; }
+.smurf-inline-signal { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.sis-label { color: var(--ink-3); }
+.sis-value { color: var(--ink-2); font-weight: 700; }
+.smurf-toggle {
+  background: none; border: none;
+  font-size: 11px; color: var(--accent); font-weight: 600;
+  cursor: pointer; padding: 0;
+}
+.smurf-toggle:hover { color: #c49a36; }
+
 .team-tabs { display: flex; gap: 2px; margin-bottom: 20px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: 4px; }
 .team-tab { flex: 1; padding: 11px 16px; font-size: 14px; font-weight: 700; border: none; border-radius: var(--r-sm); background: transparent; color: var(--ink-3); cursor: pointer; transition: all var(--transition); display: flex; align-items: center; justify-content: center; gap: 6px; }
 .team-tab:hover { color: var(--text-primary); background: rgba(255,255,255,0.03); }

@@ -67,6 +67,7 @@ export interface PlayerCard {
   obs_placed: number
   sen_placed: number
   is_winner: boolean
+  account_id: number
 }
 
 export interface TimelineEvent {
@@ -102,6 +103,23 @@ export interface ProviderItem {
   models: string[]
 }
 
+export interface SmurfSignal {
+  label: string
+  value: string
+  detail: string
+  score: number
+}
+
+export interface SmurfResult {
+  player_id: number
+  player_name: string
+  score: number
+  confidence: 'high' | 'medium' | 'low'
+  signals: SmurfSignal[]
+  roast: string
+  details: Record<string, number>
+}
+
 export const api = {
   getPlayer: (id: number) => request<PlayerInfo>(`/players/${id}`),
   getPlayerMatches: (id: number, limit = 20) =>
@@ -115,4 +133,6 @@ export const api = {
   getProviders: () => request<{ providers: ProviderItem[] }>('/providers'),
   getSharedAnalysis: (shareId: string) =>
     request<AnalysisResult>(`/share/${shareId}`),
+  smurfCheck: (playerId: number) =>
+    request<SmurfResult>(`/smurf-check/${playerId}`),
 }

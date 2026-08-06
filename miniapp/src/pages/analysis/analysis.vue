@@ -14,6 +14,12 @@ const error = ref('')
 const limitReached = ref(false)
 const activeTeam = ref('radiant')
 const loadingText = ref('正在查阅比赛录像...')
+
+// ── 小号检测 ──
+const smurfChecking = ref(false)
+const smurfResult = ref(null)
+const smurfError = ref('')
+const smurfExpanded = ref(false)
 const shareImagePath = ref('')
 
 const loadingTexts = ['正在查阅比赛录像...','正在比对英雄数据...','正在分析装备路线...','正在甄别战犯与功臣...','正在撰写判词...']
@@ -63,6 +69,18 @@ function copyShareUrl() {
   uni.showToast({ title: "请点击右上角「...」分享给朋友", icon: "none", duration: 2000 })
 }
 
+function smurfLabel(score){if(score>=0.85)return'极高';if(score>=0.70)return'很高';if(score>=0.55)return'较高';if(score>=0.40)return'中等';return'较低'}
+function smurfColor(score){if(score>=0.70)return'var(--down)';if(score>=0.55)return'var(--warn)';if(score>=0.40)return'var(--accent)';return'var(--up)'}
+
+async function checkSmurf() {
+  if(smurfChecking.value)return
+  const aid = result.value?.mvp?.account_id
+  if(!aid){smurfError.value='无法获取MVP的玩家ID';return}
+  smurfChecking.value=true;smurfError.value='';smurfResult.value=null;smurfExpanded.value=false
+  try{smurfResult.value=await api.smurfCheck(aid)}catch(e){smurfError.value=e.message||'检测失败'}
+  smurfChecking.value=false
+}
+
 function formatDuration(sec) { const m=Math.floor(sec/60); const s=sec%60; return `${m}:${s.toString().padStart(2,'0')}` }
 function goHome() { uni.navigateBack() }
 
@@ -96,7 +114,7 @@ function onShareAppMessage() {
         <text v-if="result.game_summary" class="game-summary">{{ result.game_summary }}</text>
         <view class="hero-cards">
           <view class="hero-card sg-card"><view class="card-badge sg-badge"><text>🤡 背锅侠</text></view><PlayerCard :player="result.scapegoat" /><text class="card-reason">{{ result.scapegoat.reason }}</text></view>
-          <view class="hero-card mvp-card"><view class="card-badge mvp-badge"><text>🏆 MVP</text></view><PlayerCard :player="result.mvp" /><text class="card-reason">{{ result.mvp.reason }}</text></view>
+          <view class="hero-card mvp-card"><view class="card-badge mvp-badge"><text>🏆 MVP</text></view><PlayerCard :player="result.mvp" /><text class="card-reason">{{ result.mvp.reason }}</text><view class="smurf-action"><view class="smurf-btn" @click="checkSmurf"><text>🔍 {{ smurfChecking?'检测中...':'这人是小号吗？' }}</text></view><text v-if="smurfError" class="smurf-error-inline">{{ smurfError }}</text></view><view v-if="smurfResult" class="smurf-inline"><view class="smurf-inline-score"><text class="smurf-inline-num" :style="{color:smurfColor(smurfResult.score)}">{{ Math.round(smurfResult.score*100) }}%</text><text class="smurf-inline-label" :style="{color:smurfColor(smurfResult.score)}">{{ smurfLabel(smurfResult.score) }}</text></view><text class="smurf-inline-roast">{{ smurfResult.roast }}</text><view v-if="smurfExpanded" class="smurf-inline-details"><view v-for="s in smurfResult.signals" :key="s.label" class="smurf-inline-signal"><text class="sis-label">{{ s.label }}</text><text class="sis-value">{{ s.value }}</text></view></view><view class="smurf-toggle" @click="smurfExpanded=!smurfExpanded"><text>{{ smurfExpanded?'收起 ▲':'展开 ▼' }}</text></view></view></view>
         </view>
         <view class="team-tabs">
           <view :class="['team-tab','radiant',{active:activeTeam==='radiant'}]" @click="activeTeam='radiant'"><view class="team-dot radiant-dot"><view class="dot-inner"></view></view><text>天辉</text><text v-if="result.radiant_win" class="crown">WIN</text></view>
@@ -169,5 +187,18 @@ function onShareAppMessage() {
 .position-grid{display:flex;flex-direction:column;gap:20rpx;margin-bottom:16rpx}
 .btn{display:inline-flex;align-items:center;gap:12rpx;padding:20rpx 40rpx;border-radius:var(--r-sm);font-size:26rpx;font-weight:600;border:1px solid var(--border);background:var(--bg);color:var(--text-primary);white-space:nowrap}
 .btn-sm{padding:12rpx 28rpx;font-size:24rpx;border-radius:var(--r-sm);display:inline-flex;align-items:center;border:1px solid var(--border);background:var(--bg);color:var(--text-primary);font-weight:600;white-space:nowrap;flex-shrink:0}
+.smurf-action{margin-top:28rpx;padding-top:24rpx;border-top:1px solid var(--border)}
+.smurf-btn{display:inline-flex;align-items:center;padding:14rpx 28rpx;border:1px solid var(--border);border-radius:var(--r-sm);font-size:24rpx;color:var(--ink-2);font-weight:600}
+.smurf-error-inline{font-size:22rpx;color:var(--red-400);margin-top:12rpx;display:block}
+.smurf-inline{margin-top:20rpx}
+.smurf-inline-score{display:flex;align-items:center;gap:12rpx;margin-bottom:8rpx}
+.smurf-inline-num{font-size:32rpx;font-weight:800}
+.smurf-inline-label{font-size:20rpx;font-weight:700;background:rgba(255,255,255,.05);padding:2rpx 12rpx;border-radius:var(--r-sm)}
+.smurf-inline-roast{font-size:24rpx;color:var(--ink-2);line-height:1.6;font-style:italic;margin-bottom:12rpx;display:block}
+.smurf-inline-details{display:flex;flex-wrap:wrap;gap:8rpx 20rpx;margin-bottom:10rpx}
+.smurf-inline-signal{display:flex;align-items:center;gap:6rpx;font-size:22rpx}
+.sis-label{color:var(--ink-3)}
+.sis-value{color:var(--ink-2);font-weight:700}
+.smurf-toggle text{font-size:22rpx;color:var(--accent);font-weight:600}
 .container{padding:0 32rpx}
 </style>

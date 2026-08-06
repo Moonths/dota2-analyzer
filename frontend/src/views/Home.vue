@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { api, type MatchItem } from '../api'
+import { api, type MatchItem, type SmurfResult } from '../api'
 
 const router = useRouter()
 
+// ── 比赛分析 ──
 const searchMode = ref<'player' | 'match'>('player')
 const playerId = ref('')
 const matchId = ref('')
@@ -15,6 +16,13 @@ const matches = ref<MatchItem[]>([])
 const providers = ref<{ id: string; name: string; models: string[] }[]>([])
 const selectedProvider = ref('')
 const selectedModel = ref('')
+
+// ── 捕鱼执法 ──
+const smurfId = ref('')
+const smurfLoading = ref(false)
+const smurfError = ref('')
+const smurfResult = ref<SmurfResult | null>(null)
+const smurfExpanded = ref(false)
 
 onMounted(() => {
   const saved = localStorage.getItem('dota2_player_id')
@@ -44,6 +52,7 @@ watch(selectedProvider, () => {
   selectedModel.value = currentModels.value[0] || ''
 })
 
+// ── 比赛分析 methods ──
 async function searchPlayer() {
   const id = parseInt(playerId.value.trim())
   if (!id) { error.value = '请输入有效的玩家ID'; return }
@@ -78,6 +87,38 @@ function goDirectMatch() {
   })
 }
 
+// ── 捕鱼执法 methods ──
+async function runSmurfCheck() {
+  const id = parseInt(smurfId.value.trim())
+  if (!id) { smurfError.value = '请输入有效的玩家ID'; return }
+  smurfLoading.value = true
+  smurfError.value = ''
+  smurfResult.value = null
+  smurfExpanded.value = false
+  try {
+    smurfResult.value = await api.smurfCheck(id)
+  } catch (e: any) {
+    smurfError.value = e.message || '检测失败'
+  } finally {
+    smurfLoading.value = false
+  }
+}
+
+function smurfScoreLabel(score: number): string {
+  if (score >= 0.85) return '极高'
+  if (score >= 0.70) return '很高'
+  if (score >= 0.55) return '较高'
+  if (score >= 0.40) return '中等'
+  return '较低'
+}
+
+function smurfScoreColor(score: number): string {
+  if (score >= 0.70) return 'var(--down)'
+  if (score >= 0.55) return 'var(--warn)'
+  if (score >= 0.40) return 'var(--accent)'
+  return 'var(--up)'
+}
+
 function formatDuration(sec: number) {
   const m = Math.floor(sec / 60)
   const s = sec % 60
@@ -96,53 +137,131 @@ function formatTime(ts: number) {
         <h1 class="hero-title">🏆 比赛结束了，锅得分好</h1>
         <p class="hero-sub">输入比赛ID或玩家ID，AI帮你评选MVP、找出背锅侠、逐位置给出改进建议</p>
 
-        <!-- AI 模型选择 -->
-        <div class="provider-bar" v-if="providers.length > 0">
-          <span class="provider-label">AI模型:</span>
-          <select v-model="selectedProvider" class="select-sm">
-            <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
-          <select v-model="selectedModel" class="select-sm" v-if="currentModels.length > 1">
-            <option v-for="m in currentModels" :key="m" :value="m">{{ m }}</option>
-          </select>
-        </div>
+        <!-- 双卡片布局 -->
+        <div class="dual-cards">
+          <!-- 左：比赛分析 -->
+          <div class="feature-card">
+            <div class="card-header">
+              <span class="card-icon">📊</span>
+              <span class="card-title">比赛分析</span>
+            </div>
 
-        <!-- 搜索模式切换 -->
-        <div class="mode-tabs">
-          <button
-            :class="['mode-tab', { active: searchMode === 'player' }]"
-            @click="searchMode = 'player'"
-          >搜玩家找比赛</button>
-          <button
-            :class="['mode-tab', { active: searchMode === 'match' }]"
-            @click="searchMode = 'match'"
-          >直接输入比赛ID</button>
-        </div>
+            <div class="provider-bar" v-if="providers.length > 0">
+              <span class="provider-label">AI模型:</span>
+              <select v-model="selectedProvider" class="select-sm">
+                <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+              <select v-model="selectedModel" class="select-sm" v-if="currentModels.length > 1">
+                <option v-for="m in currentModels" :key="m" :value="m">{{ m }}</option>
+              </select>
+            </div>
 
-        <!-- 玩家搜索 -->
-        <div v-if="searchMode === 'player'" class="search-bar">
-          <input
-            v-model="playerId"
-            type="text"
-            placeholder="输入 Dota 2 玩家ID（Steam32 ID）"
-            class="search-input"
-            @keyup.enter="searchPlayer"
-          />
-          <button class="btn btn-primary" @click="searchPlayer" :disabled="loading">
-            {{ loading ? '搜索中...' : '搜索比赛' }}
-          </button>
-        </div>
+            <div class="mode-tabs">
+              <button
+                :class="['mode-tab', { active: searchMode === 'player' }]"
+                @click="searchMode = 'player'"
+              >搜玩家</button>
+              <button
+                :class="['mode-tab', { active: searchMode === 'match' }]"
+                @click="searchMode = 'match'"
+              >比赛ID</button>
+            </div>
 
-        <!-- 比赛ID直接输入 -->
-        <div v-else class="search-bar">
-          <input
-            v-model="matchId"
-            type="text"
-            placeholder="输入比赛ID（例如 OpenDota 链接或纯数字）"
-            class="search-input"
-            @keyup.enter="goDirectMatch"
-          />
-          <button class="btn btn-primary" @click="goDirectMatch">开始分析</button>
+            <div v-if="searchMode === 'player'" class="card-search">
+              <input
+                v-model="playerId"
+                type="text"
+                placeholder="输入玩家ID（Steam32 ID）"
+                class="search-input card-input"
+                @keyup.enter="searchPlayer"
+              />
+              <button class="btn btn-primary" @click="searchPlayer" :disabled="loading">
+                {{ loading ? '搜索中...' : '搜索' }}
+              </button>
+            </div>
+
+            <div v-else class="card-search">
+              <input
+                v-model="matchId"
+                type="text"
+                placeholder="输入比赛ID"
+                class="search-input card-input"
+                @keyup.enter="goDirectMatch"
+              />
+              <button class="btn btn-primary" @click="goDirectMatch">开始分析</button>
+            </div>
+          </div>
+
+          <!-- 右：捕鱼执法 -->
+          <div class="feature-card">
+            <div class="card-header">
+              <span class="card-icon">🎣</span>
+              <span class="card-title">捕鱼执法</span>
+            </div>
+            <p class="card-desc">输入玩家ID，检测是否为小号炸鱼</p>
+
+            <div class="card-search">
+              <input
+                v-model="smurfId"
+                type="text"
+                placeholder="输入玩家ID（Steam32 ID）"
+                class="search-input card-input"
+                @keyup.enter="runSmurfCheck"
+              />
+              <button class="btn btn-primary" @click="runSmurfCheck" :disabled="smurfLoading">
+                {{ smurfLoading ? '检测中...' : '检测' }}
+              </button>
+            </div>
+
+            <p v-if="smurfError" class="error-msg">{{ smurfError }}</p>
+
+            <!-- 检测结果 -->
+            <div v-if="smurfResult" class="smurf-result" :class="{ expanded: smurfExpanded }">
+              <div class="smurf-score-row">
+                <div class="smurf-score-bar-bg">
+                  <div
+                    class="smurf-score-bar-fill"
+                    :style="{
+                      width: Math.round(smurfResult.score * 100) + '%',
+                      background: smurfScoreColor(smurfResult.score),
+                    }"
+                  ></div>
+                </div>
+                <span class="smurf-score-num" :style="{ color: smurfScoreColor(smurfResult.score) }">
+                  {{ Math.round(smurfResult.score * 100) }}%
+                </span>
+                <span class="smurf-score-label" :style="{ color: smurfScoreColor(smurfResult.score) }">
+                  {{ smurfScoreLabel(smurfResult.score) }}
+                </span>
+              </div>
+
+              <p class="smurf-roast">{{ smurfResult.roast }}</p>
+
+              <div v-if="smurfExpanded" class="smurf-details">
+                <div
+                  v-for="s in smurfResult.signals"
+                  :key="s.label"
+                  class="smurf-signal"
+                >
+                  <div class="signal-header">
+                    <span class="signal-label">{{ s.label }}</span>
+                    <span class="signal-value">{{ s.value }}</span>
+                  </div>
+                  <div class="signal-bar-bg">
+                    <div
+                      class="signal-bar-fill"
+                      :style="{ width: Math.round(s.score * 100) + '%' }"
+                    ></div>
+                  </div>
+                  <span class="signal-detail">{{ s.detail }}</span>
+                </div>
+              </div>
+
+              <button class="smurf-toggle" @click="smurfExpanded = !smurfExpanded">
+                {{ smurfExpanded ? '收起证据 ▲' : '展开证据 ▼' }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <p v-if="error" class="error-msg">{{ error }}</p>
@@ -181,34 +300,142 @@ function formatTime(ts: number) {
 
 <style scoped>
 .hero {
-  padding: 72px 0 48px;
+  padding: 64px 0 48px;
   text-align: center;
 }
 .hero-title {
-  font-size: 34px; font-weight: 800; margin-bottom: 12px;
+  font-size: 34px; font-weight: 800; margin-bottom: 10px;
   color: var(--ink-1); letter-spacing: -0.02em;
 }
 .hero-sub {
-  color: var(--text-secondary); margin-bottom: 28px; font-size: 15px; font-weight: 500; line-height: 1.6;
+  color: var(--text-secondary); margin-bottom: 36px; font-size: 15px;
+  font-weight: 500; line-height: 1.6;
 }
+
+/* ── 双卡片 ── */
+.dual-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  max-width: 820px;
+  margin: 0 auto;
+}
+@media (max-width: 700px) {
+  .dual-cards { grid-template-columns: 1fr; max-width: 420px; }
+}
+
+.feature-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 24px 22px 22px;
+  text-align: center;
+  transition: border-color var(--transition);
+}
+.feature-card:hover { border-color: var(--border-light); }
+
+.card-header {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; margin-bottom: 16px;
+}
+.card-icon { font-size: 20px; }
+.card-title {
+  font-size: 16px; font-weight: 800;
+  color: var(--ink-1); letter-spacing: -0.01em;
+}
+.card-desc {
+  font-size: 13px; color: var(--ink-3);
+  margin-bottom: 16px; font-weight: 500;
+}
+
+/* ── 模型选择（仅左卡片） ── */
 .provider-bar {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  margin-bottom: 24px; font-size: 13px; color: var(--text-secondary); font-weight: 500;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin-bottom: 16px; font-size: 12px; color: var(--text-secondary); font-weight: 500;
 }
+
+/* ── 模式标签 ── */
 .mode-tabs {
-  display: inline-flex; background: var(--bg-card);
-  border: 1px solid var(--border); border-radius: var(--r);
-  overflow: hidden; margin-bottom: 20px;
+  display: inline-flex; background: var(--panel-2);
+  border-radius: var(--r-sm);
+  overflow: hidden; margin-bottom: 16px;
 }
 .mode-tab {
-  padding: 9px 22px; font-size: 13px; font-weight: 600;
+  padding: 7px 16px; font-size: 12px; font-weight: 600;
   border: none; background: transparent; color: var(--text-secondary);
   transition: all var(--transition);
 }
 .mode-tab.active {
   background: var(--accent); color: var(--on-accent);
 }
-.search-bar { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+/* ── 搜索行 ── */
+.card-search {
+  display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+}
+.card-input {
+  width: 200px; max-width: 60%;
+}
+
+/* ── 捕鱼结果 ── */
+.smurf-result {
+  margin-top: 16px; text-align: left;
+}
+.smurf-score-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.smurf-score-bar-bg {
+  flex: 1; height: 8px; background: var(--panel-2);
+  border-radius: 4px; overflow: hidden;
+}
+.smurf-score-bar-fill {
+  height: 100%; border-radius: 4px; transition: width 0.6s ease;
+}
+.smurf-score-num {
+  font-size: 20px; font-weight: 800; min-width: 44px; text-align: right;
+}
+.smurf-score-label {
+  font-size: 12px; font-weight: 700;
+  background: rgba(255,255,255,.05); padding: 2px 8px;
+  border-radius: var(--r-sm);
+}
+
+.smurf-roast {
+  font-size: 13px; color: var(--ink-2); line-height: 1.6;
+  font-style: italic; margin-bottom: 10px;
+}
+
+.smurf-details { margin-top: 10px; }
+.smurf-signal {
+  margin-bottom: 8px;
+}
+.signal-header {
+  display: flex; justify-content: space-between;
+  font-size: 12px; margin-bottom: 3px;
+}
+.signal-label { color: var(--ink-3); font-weight: 500; }
+.signal-value { color: var(--ink-2); font-weight: 600; }
+.signal-bar-bg {
+  height: 4px; background: var(--panel-2);
+  border-radius: 2px; overflow: hidden; margin-bottom: 2px;
+}
+.signal-bar-fill {
+  height: 100%; background: var(--accent);
+  border-radius: 2px; transition: width 0.5s ease;
+}
+.signal-detail {
+  font-size: 10px; color: var(--ink-3);
+}
+
+.smurf-toggle {
+  display: block; margin-top: 12px; padding: 0;
+  background: none; border: none;
+  font-size: 12px; color: var(--accent); font-weight: 600;
+  cursor: pointer;
+}
+.smurf-toggle:hover { color: #c49a36; }
+
+/* ── 通用 ── */
 .error-msg { color: var(--red-400); margin-top: 12px; font-size: 13px; font-weight: 500; }
 .matches-section { padding: 24px 0 80px; }
 .section-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; letter-spacing: -0.01em; }

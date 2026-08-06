@@ -197,6 +197,8 @@ async def analyze_match(match_data: dict, provider: str = "deepseek", model: str
             messages=[{"role": "user", "content": user_prompt}],
         )
         content = message.content[0].text
+        if not content:
+            raise ValueError(f"Claude 返回空内容。model={model}")
     else:
         from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url=api_base)
@@ -244,7 +246,7 @@ async def analyze_match(match_data: dict, provider: str = "deepseek", model: str
         """按玩家名匹配 player_card，支持模糊匹配，exclude 用于排除已选中的卡"""
         exclude = exclude or set()
         name = (name or "").strip()
-        ai_hero = (ai_entry.get("hero_name", "") or "").strip()
+        ai_hero = (ai_entry.get("hero_name") or "").strip()
 
         def _match(c):
             cn = c["player_name"].strip()
@@ -273,13 +275,13 @@ async def analyze_match(match_data: dict, provider: str = "deepseek", model: str
                 return c
         return player_cards[0]
 
-    mvp_card = _find_card(ai_result["mvp"].get("player_name", ""), ai_result["mvp"])
-    sg_card = _find_card(ai_result["scapegoat"].get("player_name", ""), ai_result["scapegoat"], {mvp_card["player_name"]})
+    mvp_card = _find_card(ai_result["mvp"].get("player_name") or "", ai_result["mvp"])
+    sg_card = _find_card(ai_result["scapegoat"].get("player_name") or "", ai_result["scapegoat"], {mvp_card["player_name"]})
 
     # u6821u9a8c1uff1aMVP u548cu80ccu9505u4fa0u4e0du80fdu662fu540cu4e00u4e2au4eba
     if mvp_card["player_name"] == sg_card["player_name"]:
-        _sg_name = ai_result["scapegoat"].get("player_name", "").strip()
-        _sg_hero = ai_result["scapegoat"].get("hero_name", "").strip()
+        _sg_name = (ai_result["scapegoat"].get("player_name") or "").strip()
+        _sg_hero = (ai_result["scapegoat"].get("hero_name") or "").strip()
         for c in player_cards:
             if c["player_name"] != mvp_card["player_name"]:
                 if (_sg_hero and c["hero_name"] == _sg_hero) or (_sg_name and _sg_name.lower() in c["player_name"].lower()):
@@ -302,8 +304,8 @@ async def analyze_match(match_data: dict, provider: str = "deepseek", model: str
     _corrected_evals = []
     _matched_cards = set()
     for pe in ai_result.get("position_evals", []):
-        _pe_name = (pe.get("player_name", "") or "").strip()
-        _pe_hero = (pe.get("hero_name", "") or "").strip()
+        _pe_name = (pe.get("player_name") or "").strip()
+        _pe_hero = (pe.get("hero_name") or "").strip()
         matched = False
         for i, c in enumerate(player_cards):
             if i in _matched_cards:
@@ -380,6 +382,7 @@ def _build_player_cards(players: list[dict], heroes: dict[int, dict], overview: 
             "tower_damage": p.get("tower_damage", 0),
             "obs_placed": p.get("obs_placed", 0),
             "sen_placed": p.get("sen_placed", 0),
+            "account_id": p.get("account_id", 0),
             "is_winner": p.get("isRadiant") == radiant_win,
         })
     return cards
