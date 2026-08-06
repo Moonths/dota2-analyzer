@@ -6,8 +6,7 @@ const BASE = (function() {
   return '/dota-api'
   // #endif
   // #ifndef H5
-  return 'https://maojike.me/dota-api'  // 生产环境
-  // return 'http://localhost:8000/api'  // 本地开发
+  return 'https://maojike.me/dota-api'
   // #endif
 })()
 
