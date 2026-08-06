@@ -67,7 +67,7 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
             skill_level, avg_mmr, radiant_win, duration, openid)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            f"{req.match_id}_{provider}",
+            f"{req.match_id}_{provider}_{openid}",
             req.match_id,
             share_id,
             provider,
