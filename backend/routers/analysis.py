@@ -38,14 +38,15 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
         await db.close()
         return result
 
-    # 检查每日配额（缓存未命中才检查）
-    from datetime import date
-    today = date.today().isoformat()
-    async with db.execute("SELECT count FROM daily_quota WHERE openid = ? AND date = ?", (openid, today)) as cursor:
-        quota_row = await cursor.fetchone()
-    if quota_row and quota_row["count"] >= 1:
-        await db.close()
-        raise HTTPException(status_code=429, detail="今天的新分析次数已用完，请明天再来！已分析过的比赛不受限制。")
+    # 检查每日配额（缓存未命中才检查，DEV_MODE跳过）
+    if not settings.dev_mode:
+        from datetime import date
+        today = date.today().isoformat()
+        async with db.execute("SELECT count FROM daily_quota WHERE openid = ? AND date = ?", (openid, today)) as cursor:
+            quota_row = await cursor.fetchone()
+        if quota_row and quota_row["count"] >= 1:
+            await db.close()
+            raise HTTPException(status_code=429, detail="今天的新分析次数已用完，请明天再来！已分析过的比赛不受限制。")
 
     # 释放数据库连接，避免 AI 分析期间长时间持锁导致并发写入报 database is locked
     await db.close()
@@ -91,11 +92,12 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
         ),
     )
 
-    # 更新每日配额
-    await db.execute(
-        "INSERT INTO daily_quota (openid, date, count) VALUES (?, ?, 1) ON CONFLICT(openid, date) DO UPDATE SET count = count + 1",
-        (openid, today)
-    )
+    # 更新每日配额（DEV_MODE跳过）
+    if not settings.dev_mode:
+        await db.execute(
+            "INSERT INTO daily_quota (openid, date, count) VALUES (?, ?, 1) ON CONFLICT(openid, date) DO UPDATE SET count = count + 1",
+            (openid, today)
+        )
     await db.commit()
     await db.close()
 

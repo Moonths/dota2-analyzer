@@ -22,9 +22,11 @@
       "port": 5174,
       "proxy": {
         "/dota-api": {
-          "target": "https://maojike.me",
+          "target": "http://localhost:8000",
           "changeOrigin": true,
-          "secure": false
+          "pathRewrite": {
+            "^/dota-api": "/api"
+          }
         }
       }
     },

@@ -6,8 +6,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/dota-api': {
-        target: 'https://maojike.me',
+        target: 'http://localhost:8000',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/dota-api/, '/api'),
       },
     },
   },

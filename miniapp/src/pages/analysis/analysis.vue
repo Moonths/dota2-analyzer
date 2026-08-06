@@ -47,10 +47,14 @@ async function doAnalyze(provider, model) {
 
 const filteredEvals = computed(() => {
   if (!result.value || !result.value.position_evals) return []
-  const cards = activeTeam.value === 'radiant' ? result.value.radiant_players : result.value.dire_players
+  const isRadiant = activeTeam.value === 'radiant'
+  const cards = isRadiant ? result.value.radiant_players : result.value.dire_players
   if (!cards || !cards.length) return []
+  // 先按阵营筛选，防止跨阵营评语串位
+  const teamEvals = (result.value.position_evals||[]).filter(e => e.is_radiant === isRadiant)
   return cards.map(card => {
-    const pe = (result.value.position_evals||[]).find(e => e.player_name===card.player_name) || (result.value.position_evals||[]).find(e => e.position===card.position)
+    // 精确匹配：player_name > hero_name > position（仅在同阵营内查找）
+    const pe = teamEvals.find(e => e.player_name===card.player_name) || teamEvals.find(e => e.hero_name===card.hero_name) || teamEvals.find(e => e.position===card.position)
     return pe ? {...pe, _card:card} : null
   }).filter(Boolean)
 })

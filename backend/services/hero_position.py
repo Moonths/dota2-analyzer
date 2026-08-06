@@ -121,7 +121,7 @@ HERO_PRIMARY: dict[int, int] = {
     121: 4,   # Grimstroke 天涯墨客  [Support, Nuker, Disabler, Escape]
     123: 4,   # Hoodwink 森海飞霞  [Support, Nuker, Escape, Disabler]
     126: 2,   # Void Spirit 虚无之灵  [Carry, Escape, Nuker, Disabler]
-    128: 2,   # Snapfire 电炎绝手  [Support, Nuker, Disabler, Escape]
+    128: [4,2],   # Snapfire 电炎绝手  [Support, Nuker, Disabler, Escape]
     129: 3,   # Mars 玛尔斯  [Carry, Initiator, Disabler, Durable]
     131: 4,   # Ringmaster 百戏大王  [Support, Nuker, Escape, Disabler]
     135: 3,   # Dawnbreaker 破晓辰星  [Carry, Durable]
@@ -217,7 +217,7 @@ HERO_SECONDARY: dict[int, list[int]] = {
     120: [3],   # Pangolier 石鳞剑士
     121: [5],   # Grimstroke 天涯墨客
     123: [5],   # Hoodwink 森海飞霞
-    128: [4,5],   # Snapfire 电炎绝手
+    128: [5],   # Snapfire 电炎绝手
     131: [5],   # Ringmaster 百戏大王
     135: [5],   # Dawnbreaker 破晓辰星 
     136: [1],   # Marci 玛西
