@@ -298,19 +298,52 @@ async def analyze_match(match_data: dict, provider: str = "deepseek", model: str
             ev["time"] = _max_time - 10
     ai_result["timeline"] = [ev for ev in ai_result.get("timeline", []) if ev.get("time", 0) >= 0]
 
-    # u6821u6b63 AI u8fd4u56deu7684 position_evalsuff1au7528u63a2u6d4bu5668u5206u914du7684u6b63u786e position u8986u76d6uff0cu786eu4fddu6bcfu961f1-5u53f7u4f4du552fu4e00
+def _apply_card_match(pe: dict, c: dict):
+    """将 player_card 的信息同步到 position_eval 条目中"""
+    pe["position"] = c["position"]
+    pe["player_name"] = c["player_name"]
+    pe["hero_name"] = c["hero_name"]
+    pe["is_radiant"] = c["is_radiant"]
+    pe["is_qualified"] = pe.get("is_qualified", True)
+    pe["score"] = max(0, min(100, pe.get("score", 50)))
+
+
+
+    # 校正 AI 返回的 position_evals：用探测器分配的 correct position 覆盖，确保每队1-5号位唯一
     _corrected_evals = []
+    _matched_cards = set()  # 追踪已匹配的 player_card 索引，防止重复匹配
     for pe in ai_result.get("position_evals", []):
         _pe_name = (pe.get("player_name", "") or "").strip()
-        for c in player_cards:
+        _pe_hero = (pe.get("hero_name", "") or "").strip()
+        matched = False
+        # 第一轮：player_name 精确匹配未使用的 card
+        for i, c in enumerate(player_cards):
+            if i in _matched_cards:
+                continue
             if _pe_name and (c["player_name"].strip() == _pe_name or c["player_name"].strip().lower() == _pe_name.lower() or _pe_name in c["player_name"] or c["player_name"] in _pe_name):
-                pe["position"] = c["position"]
-                pe["is_qualified"] = pe.get("is_qualified", True)
-                pe["score"] = max(0, min(100, pe.get("score", 50)))
+                _apply_card_match(pe, c)
                 _corrected_evals.append(pe)
+                _matched_cards.add(i)
+                matched = True
                 break
+        # 第二轮：hero_name 匹配未使用的 card
+        if not matched and _pe_hero:
+            for i, c in enumerate(player_cards):
+                if i in _matched_cards:
+                    continue
+                if c["hero_name"] == _pe_hero or _pe_hero in c["hero_name"] or c["hero_name"] in _pe_hero:
+                    _apply_card_match(pe, c)
+                    _corrected_evals.append(pe)
+                    _matched_cards.add(i)
+                    matched = True
+                    break
+        # 无法匹配的 eval 也保留，但标记为未知阵营（兜底）
+        if not matched:
+            pe["is_radiant"] = False
+            pe["is_qualified"] = pe.get("is_qualified", True)
+            pe["score"] = max(0, min(100, pe.get("score", 50)))
+            _corrected_evals.append(pe)
     ai_result["position_evals"] = _corrected_evals
-
     return {
         "mvp": {**mvp_card, "reason": ai_result["mvp"]["reason"]},
         "scapegoat": {**sg_card, "reason": ai_result["scapegoat"]["reason"]},

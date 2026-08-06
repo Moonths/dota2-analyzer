@@ -47,11 +47,17 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
         await db.close()
         raise HTTPException(status_code=429, detail="今天的新分析次数已用完，请明天再来！已分析过的比赛不受限制。")
 
+    # 释放数据库连接，避免 AI 分析期间长时间持锁导致并发写入报 database is locked
+    await db.close()
+
     # 执行 AI 分析
     try:
         result = await analyze_match(match_data, provider=provider, model=req.model)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 分析失败: {str(e)}")
+
+    # AI 分析完成后重新打开数据库连接写入结果
+    db = await get_db()
 
     # 生成分享 ID 并存储
     share_id = uuid.uuid4().hex[:12]

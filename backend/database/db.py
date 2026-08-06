@@ -15,6 +15,8 @@ async def get_db() -> aiosqlite.Connection:
 async def init_db():
     db = await get_db()
     await db.executescript("""
+        PRAGMA journal_mode=WAL;
+        PRAGMA busy_timeout=5000;
         CREATE TABLE IF NOT EXISTS match_analyses (
             id TEXT PRIMARY KEY,
             match_id INTEGER NOT NULL,

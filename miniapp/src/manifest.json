@@ -16,5 +16,20 @@
     "usingComponents": true,
     "permission": {},
     "requiredPrivateInfos": []
+  },
+  "h5": {
+    "devServer": {
+      "port": 5174,
+      "proxy": {
+        "/dota-api": {
+          "target": "https://maojike.me",
+          "changeOrigin": true,
+          "secure": false
+        }
+      }
+    },
+    "router": {
+      "mode": "hash"
+    }
   }
 }

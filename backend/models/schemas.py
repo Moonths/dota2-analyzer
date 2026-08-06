@@ -19,6 +19,7 @@ class PlayerSearchRequest(BaseModel):
 class PositionEval(BaseModel):
     position: int
     position_name: str
+    is_radiant: bool
     player_name: str
     hero_name: str
     is_qualified: bool

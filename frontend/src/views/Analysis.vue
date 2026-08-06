@@ -33,12 +33,18 @@ onMounted(async () => {
 
 const filteredEvals = computed(() => {
   if (!result.value || !result.value.position_evals) return []
-  const cards = activeTeam.value === 'radiant' ? result.value.radiant_players : result.value.dire_players
+  const isRadiant = activeTeam.value === 'radiant'
+  const cards = isRadiant ? result.value.radiant_players : result.value.dire_players
   if (!cards || !cards.length) return []
   const evals = result.value.position_evals || []
+  // 先按阵营筛选，杜绝跨阵营评语串位
+  const teamEvals = evals.filter(e => e.is_radiant === isRadiant)
   return cards
     .map(card => {
-      const pe = evals.find(e => e.player_name === card.player_name) || evals.find(e => e.position === card.position)
+      // 精确匹配：player_name > hero_name > position（仅在同阵营内查找）
+      const pe = teamEvals.find(e => e.player_name === card.player_name)
+        || teamEvals.find(e => e.hero_name === card.hero_name)
+        || teamEvals.find(e => e.position === card.position)
       return pe ? { ...pe, _card: card } : null
     })
     .filter(Boolean) as any

@@ -42,6 +42,7 @@ export interface PositionEval {
   position: number
   position_name: string
   player_name: string
+  is_radiant: boolean
   hero_name: string
   is_qualified: boolean
   score: number

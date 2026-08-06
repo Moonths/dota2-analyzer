@@ -5,8 +5,14 @@ export function getOpenid() { return _openid }
 export async function login() {
   try {
     const { code } = await uni.login({ provider: 'weixin' })
+    // #ifdef H5
+    const loginUrl = '/dota-api/login'
+    // #endif
+    // #ifndef H5
+    const loginUrl = 'https://maojike.me/dota-api/login'
+    // #endif
     const res = await uni.request({
-      url: 'https://maojike.me/dota-api/login',
+      url: loginUrl,
       method: 'POST',
       data: { code },
       header: { 'Content-Type': 'application/json' },

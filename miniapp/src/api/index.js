@@ -1,6 +1,14 @@
 import { getOpenid } from '../utils/auth.js'
 
-const BASE = 'https://maojike.me/dota-api'
+// 根据运行环境选择 API 基地址
+const BASE = (function() {
+  // #ifdef H5
+  return '/dota-api'
+  // #endif
+  // #ifndef H5
+  return 'https://maojike.me/dota-api'
+  // #endif
+})()
 
 function request(url, options = {}) {
   return new Promise((resolve, reject) => {
