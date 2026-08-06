@@ -1,80 +1,123 @@
 /**
+ * 绘制分享卡片 — Canvas 2D API
+ */
+
+function getCanvas() {
+  return new Promise((resolve) => {
+    const query = uni.createSelectorQuery()
+    query.select('#shareCanvas')
+      .fields({ node: true, size: true })
+      .exec((res) => {
+        if (!res || !res[0] || !res[0].node) {
+          resolve(null)
+          return
+        }
+        const canvas = res[0].node
+        const dpr = uni.getSystemInfoSync().pixelRatio
+        canvas.width = 250 * dpr
+        canvas.height = 200 * dpr
+        const ctx = canvas.getContext('2d')
+        ctx.scale(dpr, dpr)
+        resolve(canvas)
+      })
+  })
+}
+
+function canvasToFile(canvas) {
+  return new Promise((resolve) => {
+    uni.canvasToTempFilePath({
+      canvas,
+      quality: 0.9,
+      success(res) { resolve(res.tempFilePath) },
+      fail() { resolve('') },
+    })
+  })
+}
+
+function wrapText(ctx, text, maxWidth) {
+  const lines = []
+  let cur = ''
+  for (const ch of text) {
+    const test = cur + ch
+    const metrics = ctx.measureText(test)
+    if (metrics.width > maxWidth) {
+      lines.push(cur)
+      cur = ch
+    } else {
+      cur = test
+    }
+  }
+  if (cur) lines.push(cur)
+  return lines
+}
+
+/**
  * 绘制背锅侠分享卡片
- * @param {Object} sg - scapegoat card {player_name, hero_name, hero_icon, kda, gpm, xpm, reason}
- * @param {Object} mvp - mvp card {player_name, hero_name}
- * @returns {Promise<string>} temp file path
  */
 export function drawShareCard(sg, mvp) {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     // #ifdef MP-WEIXIN
-    const ctx = uni.createCanvasContext('shareCanvas')
+    const canvas = await getCanvas()
+    if (!canvas) { resolve(''); return }
+    const ctx = canvas.getContext('2d')
     const W = 250, H = 200
 
     // 背景
-    ctx.setFillStyle('#111110')
+    ctx.fillStyle = '#111110'
     ctx.fillRect(0, 0, W, H)
 
     // 红色顶栏
-    ctx.setFillStyle('#d93d36')
+    ctx.fillStyle = '#d93d36'
     ctx.fillRect(0, 0, W, 36)
-    ctx.setFillStyle('#ffffff')
-    ctx.setFontSize(14)
-    ctx.setTextAlign('center')
-    ctx.fillText('🤡 分锅大会 · 背锅侠揭晓', W / 2, 24)
+    ctx.fillStyle = '#ffffff'
+    ctx.font = 'bold 14px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('🤡 分锅大会 · 背锅侠揭晓', W / 2, 26)
 
-    // 英雄图标 - drawImage needs local path, skip for network images
-    // Player name
-    ctx.setFillStyle('#ede8dc')
-    ctx.setFontSize(13)
-    ctx.setTextAlign('left')
-    ctx.fillText(sg.player_name || '', 16, 55)
+    // 玩家名
+    ctx.fillStyle = '#ede8dc'
+    ctx.font = 'bold 13px sans-serif'
+    ctx.textAlign = 'left'
+    ctx.fillText(sg.player_name || '', 16, 56)
 
-    // Hero + position
-    ctx.setFillStyle('#a09b8f')
-    ctx.setFontSize(9)
+    // 英雄 + 位置
+    ctx.fillStyle = '#a09b8f'
+    ctx.font = '9px sans-serif'
     ctx.fillText('英雄: ' + (sg.hero_name || '') + '  |  ' + (sg.position ? sg.position + '号位' : ''), 16, 72)
 
-    // Stats
-    ctx.setFillStyle('#6b675e')
-    ctx.setFontSize(8)
+    // 数据
+    ctx.fillStyle = '#6b675e'
+    ctx.font = '8px sans-serif'
     ctx.fillText('KDA ' + (sg.kda || '') + '  |  GPM ' + (sg.gpm || 0) + '  |  XPM ' + (sg.xpm || 0), 16, 86)
 
-    // Divider
-    ctx.setStrokeStyle('rgba(156,147,132,.18)')
-    ctx.setLineWidth(0.5)
+    // 分割线
+    ctx.strokeStyle = 'rgba(156,147,132,.18)'
+    ctx.lineWidth = 0.5
     ctx.beginPath()
     ctx.moveTo(16, 98)
     ctx.lineTo(W - 16, 98)
     ctx.stroke()
 
-    // Reason text (wrapped)
-    ctx.setFillStyle('#a09b8f')
-    ctx.setFontSize(8)
+    // 背锅理由
+    ctx.fillStyle = '#a09b8f'
+    ctx.font = '8px sans-serif'
     const reason = sg.reason || ''
-    const lines = wrapText(reason, 37)
+    const lines = wrapText(ctx, reason, W - 32)
     lines.forEach((l, i) => {
-      if (i < 3) ctx.fillText(l, 16, 112 + i * 13)
+      if (i < 4) ctx.fillText(l, 16, 112 + i * 13)
     })
 
-    // MVP footer
-    ctx.setFillStyle('#6b675e')
-    ctx.setFontSize(7)
-    ctx.setTextAlign('right')
+    // MVP 脚注
+    ctx.fillStyle = '#6b675e'
+    ctx.font = '7px sans-serif'
+    ctx.textAlign = 'right'
     ctx.fillText('🏆 MVP: ' + (mvp.player_name || '') + ' (' + (mvp.hero_name || '') + ')', W - 16, H - 16)
-    ctx.setTextAlign('center')
-    ctx.setFontSize(6)
-    ctx.fillText('扫码进入分锅大会，看看谁在犯罪', W / 2, H - 5)
+    ctx.textAlign = 'center'
+    ctx.font = '6px sans-serif'
+    ctx.fillText('扫码进入分锅大会，看看谁在犯罪', W / 2, H - 4)
 
-    ctx.draw(false, () => {
-      setTimeout(() => {
-        uni.canvasToTempFilePath({
-          canvasId: 'shareCanvas',
-          quality: 0.9,
-          success(res) { resolve(res.tempFilePath) },
-          fail() { resolve('') },
-        })
-      }, 300)
-    })
+    const path = await canvasToFile(canvas)
+    resolve(path)
     // #endif
     // #ifndef MP-WEIXIN
     resolve('')
@@ -86,53 +129,36 @@ export function drawShareCard(sg, mvp) {
  * 绘制首页 slogan 分享卡片
  */
 export function drawHomeCard() {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     // #ifdef MP-WEIXIN
-    const ctx = uni.createCanvasContext('shareCanvas')
+    const canvas = await getCanvas()
+    if (!canvas) { resolve(''); return }
+    const ctx = canvas.getContext('2d')
     const W = 250, H = 200
 
-    ctx.setFillStyle('#111110')
+    ctx.fillStyle = '#111110'
     ctx.fillRect(0, 0, W, H)
 
-    // Gold borders
-    ctx.setFillStyle('#d4a843')
+    // 金边
+    ctx.fillStyle = '#d4a843'
     ctx.fillRect(0, 0, W, 2)
     ctx.fillRect(0, H - 2, W, 2)
 
     const slogans = ['谁尽力 谁犯罪', '谁的打法不团队', '谁在see 谁针对', '是谁野区把线对', '谁勇敢 谁暴毙', '又是谁没人情味？']
-    ctx.setFillStyle('#ede8dc')
-    ctx.setFontSize(12)
-    ctx.setTextAlign('center')
-    slogans.forEach((l, i) => ctx.fillText(l, W / 2, 45 + i * 22))
+    ctx.fillStyle = '#ede8dc'
+    ctx.font = 'bold 12px sans-serif'
+    ctx.textAlign = 'center'
+    slogans.forEach((l, i) => ctx.fillText(l, W / 2, 48 + i * 22))
 
-    ctx.setFillStyle('#d4a843')
-    ctx.setFontSize(10)
+    ctx.fillStyle = '#d4a843'
+    ctx.font = 'bold 10px sans-serif'
     ctx.fillText('—— 分锅大会 ——', W / 2, H - 12)
 
-    ctx.draw(false, () => {
-      setTimeout(() => {
-        uni.canvasToTempFilePath({
-          canvasId: 'shareCanvas',
-          quality: 0.9,
-          success(res) { resolve(res.tempFilePath) },
-          fail() { resolve('') },
-        })
-      }, 300)
-    })
+    const path = await canvasToFile(canvas)
+    resolve(path)
     // #endif
     // #ifndef MP-WEIXIN
     resolve('')
     // #endif
   })
-}
-
-function wrapText(text, maxCharsPerLine) {
-  const lines = []
-  let cur = ''
-  for (const ch of text) {
-    if (cur.length >= maxCharsPerLine) { lines.push(cur); cur = ch }
-    else { cur += ch }
-  }
-  if (cur) lines.push(cur)
-  return lines
 }

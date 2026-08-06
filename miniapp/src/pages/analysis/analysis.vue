@@ -123,7 +123,7 @@ function onShareAppMessage() {
         <Timeline :events="result.timeline" />
       </view>
     </template>
-    <canvas canvas-id="shareCanvas" style="position:fixed;left:-9999px;top:0;width:250px;height:200px"></canvas>
+    <canvas type="2d" id="shareCanvas" style="position:fixed;left:-9999px;top:0;width:250px;height:200px"></canvas>
   </view>
 </template>
 
