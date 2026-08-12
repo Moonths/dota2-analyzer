@@ -10,7 +10,6 @@ export default defineConfig(({ mode }) => {
     plugins: [uni()],
     define: {
       __API_BASE__: JSON.stringify(isDev ? DEV_API + '/api' : PROD_HOST + '/dota-api'),
-      __IMG_HOST__: JSON.stringify(isDev ? DEV_API : PROD_HOST),
     },
     server: {
       proxy: {
@@ -18,6 +17,11 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:8000',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/dota-api/, '/api'),
+        },
+        '/hero-img': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/hero-img/, '/api/hero-img'),
         },
       },
     },

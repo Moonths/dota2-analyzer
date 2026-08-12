@@ -372,7 +372,7 @@ def _build_player_cards(players: list[dict], heroes: dict[int, dict], overview: 
         cards.append({
             "player_name": p.get("personaname", str(p.get("account_id", "Unknown"))),
             "hero_name": cn_name(en_name) or f"Hero_{p.get('hero_id')}",
-            "hero_icon": f"/api/hero-img/{hero.get('name', 'unknown').replace('npc_dota_hero_', '')}.png",
+            "hero_icon": f"/hero-img/{hero.get('name', 'unknown').replace('npc_dota_hero_', '')}.png",
             "position": p.get("position", 0),
             "is_radiant": is_radiant,
             "kda": f"{p.get('kills',0)}/{p.get('deaths',0)}/{p.get('assists',0)}",
