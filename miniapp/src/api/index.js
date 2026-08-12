@@ -6,7 +6,7 @@ const BASE = (function() {
   return '/dota-api'
   // #endif
   // #ifndef H5
-  return 'https://maojike.me/dota-api'
+  return __API_BASE__
   // #endif
 })()
 
