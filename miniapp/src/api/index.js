@@ -57,6 +57,10 @@ export const api = {
   getProviders() {
     return request('/providers')
   },
+  async getQuota() {
+    await ensureLogin()
+    return request(`/quota?openid=${getOpenid()}`)
+  },
   getSharedAnalysis(shareId) {
     return request(`/share/${shareId}`)
   },

@@ -28,10 +28,47 @@ let _textIndex = 0
 
 onLoad((options) => {
   matchId.value = options.matchId
-  doAnalyze(options.provider || undefined, options.model || undefined)
+  promptBeforeAnalyze(options.provider || undefined, options.model || undefined)
 })
 
 onUnmounted(() => { if (_textTimer) clearInterval(_textTimer) })
+
+function showQuotaModal(remaining) {
+  return new Promise((resolve) => {
+    uni.showModal({
+      title: '每日分析额度',
+      content: `分锅大会是个娱乐小程序，受成本限制，每天只能免费分析 2 次，理解万岁！本日还能分析 ${remaining} 次。`,
+      confirmText: '继续分析',
+      cancelText: '下次再说',
+      success: (res) => resolve(!!res.confirm),
+      fail: () => resolve(false),
+    })
+  })
+}
+
+async function promptBeforeAnalyze(provider, model) {
+  try {
+    const quota = await api.getQuota()
+    const remaining = quota && typeof quota.analysis_remaining === 'number'
+      ? quota.analysis_remaining
+      : 0
+    loading.value = false
+    if (remaining <= 0) {
+      limitReached.value = true
+      uni.showToast({ title: '今天的 2 次分析额度已用完，明天再来！', icon: 'none', duration: 2500 })
+      return
+    }
+    const confirmed = await showQuotaModal(remaining)
+    if (confirmed) {
+      doAnalyze(provider, model)
+    } else {
+      goHome()
+    }
+  } catch (e) {
+    // 额度查询失败时不阻断分析，由分析接口最终兜底。
+    doAnalyze(provider, model)
+  }
+}
 
 async function doAnalyze(provider, model) {
   _textTimer = setInterval(() => { _textIndex = (_textIndex + 1) % loadingTexts.length; loadingText.value = loadingTexts[_textIndex] }, 2500)

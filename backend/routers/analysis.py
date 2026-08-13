@@ -1,14 +1,37 @@
 """比赛分析相关路由"""
 import json
 import uuid
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from models.schemas import AnalyzeRequest, AnalysisResult
 from services.opendota import get_match
 from services.analyzer import analyze_match
-from database.db import get_db, check_and_deduct_quota
+from database.db import get_db, check_and_deduct_quota, get_quota_usage
 from config import settings
 
 router = APIRouter(prefix="/api", tags=["analysis"])
+
+ANALYSIS_DAILY_LIMIT = 2
+SMURF_DAILY_LIMIT = 1
+
+
+@router.get("/quota")
+async def get_quota(openid: str = Query(default="anonymous")):
+    """返回当前用户今天的剩余分析额度。"""
+    if settings.dev_mode:
+        return {
+            "analysis_limit": ANALYSIS_DAILY_LIMIT,
+            "analysis_remaining": ANALYSIS_DAILY_LIMIT,
+            "smurf_limit": SMURF_DAILY_LIMIT,
+            "smurf_remaining": SMURF_DAILY_LIMIT,
+        }
+    analysis_used = await get_quota_usage(openid, "analysis")
+    smurf_used = await get_quota_usage(openid, "smurf")
+    return {
+        "analysis_limit": ANALYSIS_DAILY_LIMIT,
+        "analysis_remaining": max(ANALYSIS_DAILY_LIMIT - analysis_used, 0),
+        "smurf_limit": SMURF_DAILY_LIMIT,
+        "smurf_remaining": max(SMURF_DAILY_LIMIT - smurf_used, 0),
+    }
 
 
 @router.post("/analyze")
@@ -36,7 +59,7 @@ async def analyze_match_endpoint(req: AnalyzeRequest):
         await db.close()
         return result
 
-    if not await check_and_deduct_quota(openid, "analysis"):
+    if not await check_and_deduct_quota(openid, "analysis", ANALYSIS_DAILY_LIMIT):
         raise HTTPException(
             status_code=429,
             detail="今天的新分析次数已用完，请明天再来！已分析过的比赛不受限制。"

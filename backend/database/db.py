@@ -148,3 +148,20 @@ async def check_and_deduct_quota(
     await db.commit()
     await db.close()
     return True
+
+
+async def get_quota_usage(openid: str, quota_type: str) -> int:
+    """返回今天已经使用的额度。"""
+    from config import settings
+    if settings.dev_mode:
+        return 0
+    today = datetime.now(CHINA_TIMEZONE).date().isoformat()
+    db = await get_db()
+    async with db.execute(
+        "SELECT count FROM daily_quota "
+        "WHERE openid = ? AND date = ? AND quota_type = ?",
+        (openid, today, quota_type),
+    ) as cursor:
+        row = await cursor.fetchone()
+    await db.close()
+    return row["count"] if row else 0
