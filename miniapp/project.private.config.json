@@ -2,7 +2,7 @@
   "libVersion": "3.17.1",
   "projectname": "dota2",
   "setting": {
-    "urlCheck": true,
+    "urlCheck": false,
     "coverView": true,
     "lazyloadPlaceholderEnable": false,
     "skylineRenderEnable": false,

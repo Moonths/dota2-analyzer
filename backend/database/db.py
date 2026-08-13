@@ -1,9 +1,10 @@
 import aiosqlite
 from pathlib import Path
-from datetime import date
+from datetime import datetime, timedelta, timezone
 
 DB_DIR = Path("data")
 DB_PATH = DB_DIR / "dota2.db"
+CHINA_TIMEZONE = timezone(timedelta(hours=8))
 
 
 async def get_db() -> aiosqlite.Connection:
@@ -127,7 +128,7 @@ async def check_and_deduct_quota(
     from config import settings
     if settings.dev_mode:
         return True
-    today = date.today().isoformat()
+    today = datetime.now(CHINA_TIMEZONE).date().isoformat()
     db = await get_db()
     async with db.execute(
         "SELECT count FROM daily_quota "

@@ -98,6 +98,14 @@ cp .env.example .env && vim .env   # 填入 API Key
 docker-compose up -d               # 默认暴露 8080 端口
 ```
 
+### 小程序服务器域名
+小程序通过 `https://maojike.me/dota-api` 访问后端，上线前需在微信公众平台：
+
+- `request合法域名` 添加 `https://maojike.me`
+- `downloadFile合法域名` 添加 `https://maojike.me`（英雄头像走同一域名）
+
+若仍报 `url not in domain list`，先检查这两项，以及是否误上传了 `dist/dev` 构建产物。
+
 ## 当前状态 (2026-08-05)
 - 前端: UI 已通过 finesse 优化 (tinted neutral palette, 去 AI tell, 响应式)
 - 后端: 所有接口正常, 位置判定逻辑完成

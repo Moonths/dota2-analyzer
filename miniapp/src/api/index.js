@@ -1,4 +1,4 @@
-import { getOpenid } from '../utils/auth.js'
+import { ensureLogin, getOpenid } from '../utils/auth.js'
 
 // 根据运行环境选择 API 基地址
 const BASE = (function() {
@@ -26,7 +26,12 @@ function request(url, options = {}) {
         }
       },
       fail(err) {
-        reject(new Error(err.errMsg || 'Network error'))
+        const msg = err.errMsg || err.message || 'Network error'
+        if (msg.includes('url not in domain list') || msg.includes('合法域名')) {
+          reject(new Error('请求域名未配置，请在小程序后台添加服务器域名'))
+        } else {
+          reject(new Error(msg))
+        }
       },
     })
   })
@@ -42,7 +47,8 @@ export const api = {
   getMatchInfo(id) {
     return request(`/matches/${id}`)
   },
-  analyze(matchId, provider, model) {
+  async analyze(matchId, provider, model) {
+    await ensureLogin()
     return request('/analyze', {
       method: 'POST',
       body: JSON.stringify({ match_id: matchId, provider, model, openid: getOpenid() }),
@@ -54,7 +60,8 @@ export const api = {
   getSharedAnalysis(shareId) {
     return request(`/share/${shareId}`)
   },
-  smurfCheck(playerId) {
+  async smurfCheck(playerId) {
+    await ensureLogin()
     return request(`/smurf-check/${playerId}?openid=${getOpenid()}`)
   },
 }

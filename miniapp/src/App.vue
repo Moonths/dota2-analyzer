@@ -1,9 +1,9 @@
 <script>
 import { onLaunch } from '@dcloudio/uni-app'
-import { login } from './utils/auth.js'
+import { ensureLogin } from './utils/auth.js'
 export default {
   setup() {
-    onLaunch(() => { login() })
+    onLaunch(() => { ensureLogin() })
   }
 }
 </script>
