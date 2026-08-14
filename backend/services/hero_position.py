@@ -92,7 +92,7 @@ HERO_PRIMARY: dict[int, int] = {
      88: 4,   # Nyx Assassin 司夜刺客  [Disabler, Nuker, Initiator, Escape]
      89: 1,   # Naga Siren 娜迦海妖  [Carry, Support, Pusher, Disabler, Initiator, Escape]
      90: [4,2],   # Keeper of the Light 光之守卫  [Support, Nuker, Disabler]
-     91: 5,   # Io 艾欧  [Support, Escape, Nuker]
+     91: 4,   # Io 艾欧  [Support, Escape, Nuker]
      92: 4,   # Visage 维萨吉  [Support, Nuker, Durable, Disabler, Pusher]
      93: 1,   # Slark 斯拉克  [Carry, Escape, Disabler, Nuker]
      94: 1,   # Medusa 美杜莎  [Carry, Disabler, Durable]
@@ -200,7 +200,7 @@ HERO_SECONDARY: dict[int, list[int]] = {
      88: [5,3],   # Nyx Assassin 司夜刺客
      89: [4],   # Naga Siren 娜迦海妖
      90: [5],   # Keeper of the Light 光之守卫
-     91: [1,4],   # Io 艾欧
+     91: [2,1,5],   # Io 艾欧
      92: [3],   # Visage 维萨吉
      93: [2,3],   # Slark 斯拉克
      97: [1],   # Magnus 马格纳斯
