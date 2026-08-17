@@ -13,10 +13,20 @@ services:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - DEFAULT_AI_PROVIDER=${DEFAULT_AI_PROVIDER:-openai}
       - SHARE_BASE_URL=${SHARE_BASE_URL:-http://localhost}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - WECHAT_APPID=${WECHAT_APPID:-}
       - WECHAT_SECRET=${WECHAT_SECRET:-}
     volumes:
       - ./backend/data:/app/data
+    depends_on:
+      - redis
+    networks:
+      - dota2-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: dota2-redis
+    restart: unless-stopped
     networks:
       - dota2-net
 
@@ -28,6 +38,7 @@ services:
       - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       - backend
+      - redis
     networks:
       - dota2-net
     volumes:

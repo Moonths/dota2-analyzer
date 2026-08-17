@@ -17,29 +17,64 @@ const loadingText = ref('正在查阅比赛录像...')
 
 // ── 小号检测 ──
 const smurfChecking = ref(false)
+const smurfConfirming = ref(false)
 const smurfResult = ref(null)
 const smurfError = ref('')
 const smurfExpanded = ref(false)
 const shareImagePath = ref('')
+const smurfLoadingText = ref('正在调取玩家战绩...')
+const smurfLoadingTexts = [
+  '正在调取玩家战绩...',
+  '正在逐场核对比赛数据...',
+  '正在比对英雄基准...',
+  '正在给这条鱼定罪...',
+]
+let smurfTextTimer = null
+let smurfTextIndex = 0
+let smurfRequestSeq = 0
+let smurfLastRunAt = 0
 
 const loadingTexts = ['正在查阅比赛录像...','正在比对英雄数据...','正在分析装备路线...','正在甄别战犯与功臣...','正在撰写判词...']
 let _textTimer = null
 let _textIndex = 0
+
+function beginSmurfLoading() {
+  smurfTextIndex = 0
+  smurfLoadingText.value = smurfLoadingTexts[0]
+  smurfTextTimer = setInterval(() => {
+    smurfTextIndex = (smurfTextIndex + 1) % smurfLoadingTexts.length
+    smurfLoadingText.value = smurfLoadingTexts[smurfTextIndex]
+  }, 1600)
+}
+
+function endSmurfLoading() {
+  if (smurfTextTimer) {
+    clearInterval(smurfTextTimer)
+    smurfTextTimer = null
+  }
+}
 
 onLoad((options) => {
   matchId.value = options.matchId
   promptBeforeAnalyze(options.provider || undefined, options.model || undefined)
 })
 
-onUnmounted(() => { if (_textTimer) clearInterval(_textTimer) })
+onUnmounted(() => {
+  if (_textTimer) clearInterval(_textTimer)
+  endSmurfLoading()
+})
 
-function showQuotaModal(remaining) {
+function showQuotaModal(remaining, kind = 'analysis') {
+  const label = kind === 'analysis' ? '比赛分析' : '小号检测'
+  const isExhaustedAnalysis = kind === 'analysis' && remaining <= 0
   return new Promise((resolve) => {
     uni.showModal({
-      title: '每日分析额度',
-      content: `分锅大会是个娱乐小程序，受成本限制，每天只能免费分析 2 次，理解万岁！本日还能分析 ${remaining} 次。`,
-      confirmText: '继续分析',
-      cancelText: '下次再说',
+      title: '今日分析机会',
+      content: isExhaustedAnalysis
+        ? '今天 3 次新分析机会已用完，已分析过的比赛仍可直接查看。是否继续？'
+        : `本次${label}会消耗 1 次机会，今天还剩 ${remaining} 次。`,
+      confirmText: isExhaustedAnalysis ? '继续查看' : (kind === 'analysis' ? '继续分析' : '继续检测'),
+      cancelText: '先不',
       success: (res) => resolve(!!res.confirm),
       fail: () => resolve(false),
     })
@@ -49,16 +84,11 @@ function showQuotaModal(remaining) {
 async function promptBeforeAnalyze(provider, model) {
   try {
     const quota = await api.getQuota()
-    const remaining = quota && typeof quota.analysis_remaining === 'number'
-      ? quota.analysis_remaining
-      : 0
+    const remaining = quota && typeof quota.remaining === 'number'
+      ? quota.remaining
+      : (quota && typeof quota.analysis_remaining === 'number' ? quota.analysis_remaining : 0)
     loading.value = false
-    if (remaining <= 0) {
-      limitReached.value = true
-      uni.showToast({ title: '今天的 2 次分析额度已用完，明天再来！', icon: 'none', duration: 2500 })
-      return
-    }
-    const confirmed = await showQuotaModal(remaining)
+    const confirmed = await showQuotaModal(remaining, 'analysis')
     if (confirmed) {
       doAnalyze(provider, model)
     } else {
@@ -83,7 +113,7 @@ async function doAnalyze(provider, model) {
     const msg = e.message || '分析失败'
     if (msg.includes('429') || msg.includes('用完') || msg.includes('明天再来')) {
       limitReached.value = true
-      uni.showToast({ title: '今天的新分析次数已用完，明天再来！', icon: 'none', duration: 2500 })
+      uni.showToast({ title: '今天 3 次分析机会已用完，明天再来！', icon: 'none', duration: 2500 })
     } else { error.value = msg }
   } finally { loading.value = false; if (_textTimer) { clearInterval(_textTimer); _textTimer = null } }
 }
@@ -108,12 +138,43 @@ function smurfLabel(score){if(score>=0.85)return'极高';if(score>=0.70)return'�
 function smurfColor(score){if(score>=0.70)return'var(--down)';if(score>=0.55)return'var(--warn)';if(score>=0.40)return'var(--accent)';return'var(--up)'}
 
 async function checkSmurf() {
-  if(smurfChecking.value)return
+  const now = Date.now()
+  if(smurfChecking.value || smurfConfirming.value || now - smurfLastRunAt < 600)return
   const aid = result.value?.mvp?.account_id
   if(!aid){smurfError.value='无法获取MVP的玩家ID';return}
+
+  smurfLastRunAt = now
+  smurfConfirming.value = true
+  try {
+    const quota = await api.getQuota()
+    const remaining = quota && typeof quota.remaining === 'number'
+      ? quota.remaining
+      : (quota && typeof quota.analysis_remaining === 'number' ? quota.analysis_remaining : 0)
+    if (remaining <= 0) {
+      uni.showToast({ title: '今天 3 次分析机会已用完，明天再来！', icon: 'none', duration: 2500 })
+      return
+    }
+    if (!(await showQuotaModal(remaining, 'smurf'))) return
+  } catch (e) {
+    // 额度查询失败时不阻断，由后端接口最终兜底。
+  } finally {
+    smurfConfirming.value = false
+  }
+
+  const seq = ++smurfRequestSeq
   smurfChecking.value=true;smurfError.value='';smurfResult.value=null;smurfExpanded.value=false
-  try{smurfResult.value=await api.smurfCheck(aid)}catch(e){smurfError.value=e.message||'检测失败'}
-  smurfChecking.value=false
+  beginSmurfLoading()
+  try {
+    const result = await api.smurfCheck(aid)
+    if (seq === smurfRequestSeq) smurfResult.value = result
+  } catch(e) {
+    if (seq === smurfRequestSeq) smurfError.value = e.message || '检测失败'
+  } finally {
+    if (seq === smurfRequestSeq) {
+      endSmurfLoading()
+      smurfChecking.value = false
+    }
+  }
 }
 
 function formatDuration(sec) { const m=Math.floor(sec/60); const s=sec%60; return `${m}:${s.toString().padStart(2,'0')}` }
@@ -140,7 +201,7 @@ function onShareAppMessage() {
       <text class="loading-patience">局势复杂，请耐心等候...</text>
     </view></view>
 
-    <view v-else-if="limitReached" class="error-state container"><text class="limit-icon">⏳</text><text class="error-msg">今天的新分析次数已用完</text><text class="limit-hint">已分析过的比赛不受限制，可直接从玩家列表进入</text><view class="btn btn-back" @click="goHome"><text>返回首页</text></view></view>
+    <view v-else-if="limitReached" class="error-state container"><text class="limit-icon">⏳</text><text class="error-msg">今天 3 次分析机会已用完</text><text class="limit-hint">已分析过的比赛仍可直接查看</text><view class="btn btn-back" @click="goHome"><text>返回首页</text></view></view>
     <view v-else-if="error" class="error-state container"><text class="error-msg">{{ error }}</text><view class="btn btn-back" @click="goHome"><text>返回首页</text></view></view>
 
     <template v-else-if="result">
@@ -149,7 +210,7 @@ function onShareAppMessage() {
         <text v-if="result.game_summary" class="game-summary">{{ result.game_summary }}</text>
         <view class="hero-cards">
           <view class="hero-card sg-card"><view class="card-badge sg-badge"><text>🤡 背锅侠</text></view><PlayerCard :player="result.scapegoat" /><text class="card-reason">{{ result.scapegoat.reason }}</text></view>
-          <view class="hero-card mvp-card"><view class="card-badge mvp-badge"><text>🏆 MVP</text></view><PlayerCard :player="result.mvp" /><text class="card-reason">{{ result.mvp.reason }}</text><view class="smurf-action"><view class="smurf-btn" @click="checkSmurf"><text>🔍 {{ smurfChecking?'检测中...':'这人是小号吗？' }}</text></view><text v-if="smurfError" class="smurf-error-inline">{{ smurfError }}</text></view><view v-if="smurfResult" class="smurf-inline"><view class="smurf-inline-score"><text class="smurf-inline-num" :style="{color:smurfColor(smurfResult.score)}">{{ Math.round(smurfResult.score*100) }}%</text><text class="smurf-inline-label" :style="{color:smurfColor(smurfResult.score)}">{{ smurfLabel(smurfResult.score) }}</text></view><text class="smurf-inline-roast">{{ smurfResult.roast }}</text><view v-if="smurfExpanded" class="smurf-inline-details"><view v-for="s in smurfResult.signals" :key="s.label" class="smurf-inline-signal"><text class="sis-label">{{ s.label }}</text><text class="sis-value">{{ s.value }}</text></view></view><view class="smurf-toggle" @click="smurfExpanded=!smurfExpanded"><text>{{ smurfExpanded?'收起 ▲':'展开 ▼' }}</text></view></view></view>
+          <view class="hero-card mvp-card"><view class="card-badge mvp-badge"><text>🏆 MVP</text></view><PlayerCard :player="result.mvp" /><text class="card-reason">{{ result.mvp.reason }}</text><view class="smurf-action"><view class="smurf-btn" @click="checkSmurf"><text>🔍 {{ smurfChecking || smurfConfirming ?'检测中...':'这人是小号吗？' }}</text></view><view v-if="smurfChecking || smurfConfirming" class="smurf-checking"><view class="smurf-checking-spinner"></view><text>{{ smurfLoadingText }}</text></view><text v-if="smurfError" class="smurf-error-inline">{{ smurfError }}</text></view><view v-if="smurfResult" class="smurf-inline"><view class="smurf-inline-score"><text class="smurf-inline-num" :style="{color:smurfColor(smurfResult.score)}">{{ Math.round(smurfResult.score*100) }}%</text><text class="smurf-inline-label" :style="{color:smurfColor(smurfResult.score)}">{{ smurfLabel(smurfResult.score) }}</text></view><text class="smurf-inline-roast">{{ smurfResult.roast }}</text><view v-if="smurfExpanded" class="smurf-inline-details"><view v-for="s in smurfResult.signals" :key="s.label" class="smurf-inline-signal"><text class="sis-label">{{ s.label }}</text><text class="sis-value">{{ s.value }}</text></view></view><view class="smurf-toggle" @click="smurfExpanded=!smurfExpanded"><text>{{ smurfExpanded?'收起 ▲':'展开 ▼' }}</text></view></view></view>
         </view>
         <view class="team-tabs">
           <view :class="['team-tab','radiant',{active:activeTeam==='radiant'}]" @click="activeTeam='radiant'"><view class="team-dot radiant-dot"><view class="dot-inner"></view></view><text>天辉</text><text v-if="result.radiant_win" class="crown">WIN</text></view>
@@ -224,6 +285,9 @@ function onShareAppMessage() {
 .btn-sm{padding:12rpx 28rpx;font-size:24rpx;border-radius:var(--r-sm);display:inline-flex;align-items:center;border:1px solid var(--border);background:var(--bg);color:var(--text-primary);font-weight:600;white-space:nowrap;flex-shrink:0}
 .smurf-action{margin-top:28rpx;padding-top:24rpx;border-top:1px solid var(--border)}
 .smurf-btn{display:inline-flex;align-items:center;padding:14rpx 28rpx;border:1px solid var(--border);border-radius:var(--r-sm);font-size:24rpx;color:var(--ink-2);font-weight:600}
+.smurf-checking{display:flex;align-items:center;gap:10rpx;margin-top:14rpx;font-size:22rpx;color:var(--ink-2)}
+.smurf-checking-spinner{width:20rpx;height:20rpx;border:3rpx solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:smurf-inline-spin .8s linear infinite}
+@keyframes smurf-inline-spin{to{transform:rotate(360deg)}}
 .smurf-error-inline{font-size:22rpx;color:var(--red-400);margin-top:12rpx;display:block}
 .smurf-inline{margin-top:20rpx}
 .smurf-inline-score{display:flex;align-items:center;gap:12rpx;margin-bottom:8rpx}

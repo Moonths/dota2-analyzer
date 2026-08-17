@@ -8,7 +8,7 @@
 - 后端: Python 3.11 FastAPI, uvicorn
 - AI: 可切换 OpenAI / DeepSeek / Claude, 通过 openai SDK + anthropic SDK
 - 数据源: OpenDota API (免费, 无 key)
-- 缓存: SQLite (aiosqlite)
+- 缓存: SQLite (aiosqlite) + Redis (可选)
 - 部署: Docker Compose (Nginx + 前端 + 后端), 目标阿里云 ECS
 
 ## 目录结构

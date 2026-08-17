@@ -11,12 +11,14 @@ const BASE = (function() {
 })()
 
 function request(url, options = {}) {
+  const timeout = options.timeout || 120000
   return new Promise((resolve, reject) => {
     uni.request({
       url: BASE + url,
       method: options.method || 'GET',
       data: options.body ? JSON.parse(options.body) : undefined,
       header: { 'Content-Type': 'application/json' },
+      timeout,
       success(res) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(res.data)
@@ -29,6 +31,8 @@ function request(url, options = {}) {
         const msg = err.errMsg || err.message || 'Network error'
         if (msg.includes('url not in domain list') || msg.includes('合法域名')) {
           reject(new Error('请求域名未配置，请在小程序后台添加服务器域名'))
+        } else if (msg.includes('timeout') || msg.includes('超时')) {
+          reject(new Error('请求超时，请稍后重试'))
         } else {
           reject(new Error(msg))
         }
@@ -66,6 +70,6 @@ export const api = {
   },
   async smurfCheck(playerId) {
     await ensureLogin()
-    return request(`/smurf-check/${playerId}?openid=${getOpenid()}`)
+    return request(`/smurf-check/${playerId}?openid=${getOpenid()}`, { timeout: 60000 })
   },
 }

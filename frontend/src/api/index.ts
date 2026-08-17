@@ -1,15 +1,43 @@
 const BASE = '/api'
+const CLIENT_ID_KEY = 'dota2_client_id'
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err || `HTTP ${res.status}`)
+function getClientId(): string {
+  const saved = localStorage.getItem(CLIENT_ID_KEY)
+  if (saved) return saved
+  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  localStorage.setItem(CLIENT_ID_KEY, generated)
+  return generated
+}
+
+async function request<T>(
+  url: string,
+  options: RequestInit & { timeout?: number } = {},
+): Promise<T> {
+  const { timeout = 120000, ...fetchOptions } = options
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const res = await fetch(`${BASE}${url}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...fetchOptions,
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(err || `HTTP ${res.status}`)
+    }
+    return res.json()
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('请求超时，请稍后重试')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timer)
   }
-  return res.json()
 }
 
 export interface PlayerInfo {
@@ -103,6 +131,16 @@ export interface ProviderItem {
   models: string[]
 }
 
+export interface Quota {
+  limit: number
+  used: number
+  remaining: number
+  analysis_limit?: number
+  analysis_remaining?: number
+  smurf_limit?: number
+  smurf_remaining?: number
+}
+
 export interface SmurfSignal {
   label: string
   value: string
@@ -128,11 +166,12 @@ export const api = {
   analyze: (matchId: number, provider?: string, model?: string) =>
     request<AnalysisResult>('/analyze', {
       method: 'POST',
-      body: JSON.stringify({ match_id: matchId, provider, model }),
+      body: JSON.stringify({ match_id: matchId, provider, model, openid: getClientId() }),
     }),
   getProviders: () => request<{ providers: ProviderItem[] }>('/providers'),
+  getQuota: () => request<Quota>(`/quota?openid=${encodeURIComponent(getClientId())}`),
   getSharedAnalysis: (shareId: string) =>
     request<AnalysisResult>(`/share/${shareId}`),
   smurfCheck: (playerId: number) =>
-    request<SmurfResult>(`/smurf-check/${playerId}`),
+    request<SmurfResult>(`/smurf-check/${playerId}?openid=${encodeURIComponent(getClientId())}`, { timeout: 60000 }),
 }

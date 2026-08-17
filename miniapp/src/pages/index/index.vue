@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { api } from '../../api/index.js'
 import { heroImg } from '../../utils/image.js'
 import { drawHomeCard } from '../../utils/shareImage.js'
@@ -22,9 +22,39 @@ const showHistory = ref(false)
 // ── 捕鱼执法 ──
 const smurfId = ref('')
 const smurfLoading = ref(false)
+const smurfConfirming = ref(false)
 const smurfError = ref('')
 const smurfResult = ref(null)
 const smurfExpanded = ref(false)
+const smurfLoadingText = ref('正在调取玩家战绩...')
+const smurfLoadingTexts = [
+  '正在调取玩家战绩...',
+  '正在逐场核对比赛数据...',
+  '正在比对英雄基准...',
+  '正在给这条鱼定罪...',
+]
+let smurfTextTimer = null
+let smurfTextIndex = 0
+let smurfRequestSeq = 0
+let smurfLastRunAt = 0
+
+function beginSmurfLoading() {
+  smurfTextIndex = 0
+  smurfLoadingText.value = smurfLoadingTexts[0]
+  smurfTextTimer = setInterval(() => {
+    smurfTextIndex = (smurfTextIndex + 1) % smurfLoadingTexts.length
+    smurfLoadingText.value = smurfLoadingTexts[smurfTextIndex]
+  }, 1600)
+}
+
+function endSmurfLoading() {
+  if (smurfTextTimer) {
+    clearInterval(smurfTextTimer)
+    smurfTextTimer = null
+  }
+}
+
+onUnmounted(endSmurfLoading)
 
 onMounted(() => {
   drawHomeCard().then(p => { shareImagePath.value = p })
@@ -97,6 +127,29 @@ function goDirectMatch() {
   analyzeMatch(id)
 }
 
+function confirmQuota(kind) {
+  return api.getQuota().then((quota) => {
+    const remaining = quota && typeof quota.remaining === 'number'
+      ? quota.remaining
+      : (quota && typeof quota.analysis_remaining === 'number' ? quota.analysis_remaining : 0)
+    if (remaining <= 0) {
+      uni.showToast({ title: '今天 3 次分析机会已用完，明天再来！', icon: 'none', duration: 2500 })
+      return false
+    }
+    const label = kind === 'analysis' ? '比赛分析' : '小号检测'
+    return new Promise((resolve) => {
+      uni.showModal({
+        title: '今日分析机会',
+        content: `本次${label}会消耗 1 次机会，今天还剩 ${remaining} 次。`,
+        confirmText: kind === 'analysis' ? '继续分析' : '继续检测',
+        cancelText: '先不',
+        success: (res) => resolve(!!res.confirm),
+        fail: () => resolve(false),
+      })
+    })
+  }).catch(() => true)
+}
+
 function onShareAppMessage() {
   return {
     imageUrl: shareImagePath.value, title: '分锅大会 —— 谁尽力谁犯罪，AI判官为你揭晓',
@@ -106,18 +159,38 @@ function onShareAppMessage() {
 
 // ── 捕鱼执法 ──
 async function runSmurfCheck() {
-  if (smurfLoading.value) return
+  const now = Date.now()
+  if (smurfLoading.value || smurfConfirming.value || now - smurfLastRunAt < 600) return
   const id = parseInt(smurfId.value.trim())
   if (!id) { smurfError.value = '请输入有效的玩家ID'; return }
+
+  smurfLastRunAt = now
+  smurfConfirming.value = true
+  try {
+    if (!(await confirmQuota('smurf'))) return
+  } finally {
+    smurfConfirming.value = false
+  }
+
+  const seq = ++smurfRequestSeq
   smurfLoading.value = true; smurfError.value = ''
   smurfResult.value = null; smurfExpanded.value = false
+  beginSmurfLoading()
   try {
-    smurfResult.value = await api.smurfCheck(id)
-    saveHistory('smurf', id.toString(), `查小号 ${id}`)
-    showHistory.value = false
+    const result = await api.smurfCheck(id)
+    if (seq === smurfRequestSeq) {
+      smurfResult.value = result
+      saveHistory('smurf', id.toString(), `查小号 ${id}`)
+      showHistory.value = false
+    }
   } catch (e) {
-    smurfError.value = e.message || '检测失败'
-  } finally { smurfLoading.value = false }
+    if (seq === smurfRequestSeq) smurfError.value = e.message || '检测失败'
+  } finally {
+    if (seq === smurfRequestSeq) {
+      endSmurfLoading()
+      smurfLoading.value = false
+    }
+  }
 }
 
 function smurfLabel(score) {
@@ -196,7 +269,17 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
               </view>
             </view>
           </view>
-          <view class="btn btn-primary" @click="runSmurfCheck"><text>{{ smurfLoading?'检测中...':'检测小号' }}</text></view>
+          <view class="btn btn-primary" @click="runSmurfCheck"><text>{{ smurfLoading || smurfConfirming ?'检测中...':'检测小号' }}</text></view>
+        </view>
+
+        <view v-if="smurfLoading && searchMode==='smurf'" class="smurf-loading">
+          <view class="search-spinner"><view class="spin-ring"></view></view>
+          <view class="smurf-loading-copy">
+            <text class="smurf-loading-title">捕鱼执法中</text>
+            <text class="smurf-loading-text">{{ smurfLoadingText }}</text>
+            <text class="smurf-loading-hint">首次查询较慢，稍后会快很多</text>
+          </view>
+          <view class="smurf-progress"><view class="smurf-progress-fill"></view></view>
         </view>
 
         <view v-if="loading" class="search-loading">
@@ -280,6 +363,16 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
 .spin-ring{width:100%;height:100%;border-radius:50%;border:3rpx solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .search-loading-text{font-size:24rpx;color:var(--ink-2);font-weight:500}
+
+/* ── 捕鱼 loading ── */
+.smurf-loading{display:flex;align-items:center;justify-content:center;gap:20rpx;margin-top:32rpx;padding:24rpx 28rpx;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r)}
+.smurf-loading-copy{display:flex;flex-direction:column;align-items:flex-start;gap:4rpx}
+.smurf-loading-title{font-size:28rpx;font-weight:800;color:var(--ink-1);letter-spacing:.02em}
+.smurf-loading-text{font-size:22rpx;color:var(--ink-2);font-weight:500}
+.smurf-loading-hint{font-size:20rpx;color:var(--ink-3);font-weight:400}
+.smurf-progress{width:180rpx;height:6rpx;background:var(--panel-2);border-radius:3rpx;overflow:hidden;flex-shrink:0}
+.smurf-progress-fill{display:block;width:40%;height:100%;background:var(--accent);border-radius:3rpx;animation:smurf-progress-move 1.3s ease-in-out infinite}
+@keyframes smurf-progress-move{0%{transform:translateX(-110%)}50%{transform:translateX(70%)}100%{transform:translateX(220%)}}
 
 .error-msg{color:var(--red-400);margin-top:24rpx;font-size:26rpx;font-weight:500;display:block}
 .matches-section{padding:48rpx 0 160rpx}

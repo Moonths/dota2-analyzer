@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api, type AnalysisResult, type SmurfResult } from '../api'
 import PlayerCard from '../components/PlayerCard.vue'
 import PositionEval from '../components/PositionEval.vue'
@@ -8,6 +8,7 @@ import Timeline from '../components/Timeline.vue'
 
 const props = defineProps<{ matchId: string }>()
 const route = useRoute()
+const router = useRouter()
 
 const result = ref<AnalysisResult | null>(null)
 const loading = ref(true)
@@ -17,13 +18,61 @@ const activeTeam = ref<'radiant' | 'dire'>('radiant')
 
 // ── 小号检测 ──
 const smurfChecking = ref(false)
+const smurfConfirming = ref(false)
 const smurfResult = ref<SmurfResult | null>(null)
 const smurfError = ref('')
 const smurfExpanded = ref(false)
+const smurfLoadingText = ref('正在调取玩家战绩...')
+const smurfLoadingTexts = [
+  '正在调取玩家战绩...',
+  '正在逐场核对比赛数据...',
+  '正在比对英雄基准...',
+  '正在给这条鱼定罪...',
+]
+let smurfTextTimer: number | undefined
+let smurfTextIndex = 0
+let smurfRequestSeq = 0
+let smurfLastRunAt = 0
+
+function beginSmurfLoading() {
+  smurfTextIndex = 0
+  smurfLoadingText.value = smurfLoadingTexts[0]
+  smurfTextTimer = window.setInterval(() => {
+    smurfTextIndex = (smurfTextIndex + 1) % smurfLoadingTexts.length
+    smurfLoadingText.value = smurfLoadingTexts[smurfTextIndex]
+  }, 1600)
+}
+
+function endSmurfLoading() {
+  if (smurfTextTimer) {
+    window.clearInterval(smurfTextTimer)
+    smurfTextTimer = undefined
+  }
+}
+
+onUnmounted(endSmurfLoading)
+
+async function confirmAnalysisQuota(): Promise<boolean> {
+  try {
+    const quota = await api.getQuota()
+    const remaining = quota?.remaining ?? quota?.analysis_remaining ?? 0
+    const message = remaining > 0
+      ? `本次比赛分析会消耗 1 次机会，今天还剩 ${remaining} 次。确定继续吗？`
+      : '今天 3 次新分析机会已用完，已分析过的比赛仍可直接查看。是否继续尝试？'
+    return window.confirm(message)
+  } catch {
+    return true
+  }
+}
 
 onMounted(async () => {
   const provider = (route.query.provider as string) || undefined
   const model = (route.query.model as string) || undefined
+  if (!(await confirmAnalysisQuota())) {
+    loading.value = false
+    router.push('/')
+    return
+  }
   try {
     loading.value = true
     result.value = await api.analyze(parseInt(props.matchId), provider, model)
@@ -70,22 +119,53 @@ function formatDuration(sec: number) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+async function confirmSmurfQuota(): Promise<boolean> {
+  try {
+    const quota = await api.getQuota()
+    const remaining = quota?.remaining ?? quota?.analysis_remaining ?? 0
+    if (remaining <= 0) {
+      window.alert('今天 3 次分析机会已用完，明天再来。')
+      return false
+    }
+    return window.confirm(`本次小号检测会消耗 1 次机会，今天还剩 ${remaining} 次。确定继续吗？`)
+  } catch {
+    return true
+  }
+}
+
 async function checkSmurf() {
+  const now = Date.now()
+  if (smurfChecking.value || smurfConfirming.value || now - smurfLastRunAt < 600) return
   const mvpAccountId = result.value?.mvp?.account_id
   if (!mvpAccountId) {
     smurfError.value = '无法获取MVP的玩家ID'
     return
   }
+
+  smurfLastRunAt = now
+  smurfConfirming.value = true
+  try {
+    if (!(await confirmSmurfQuota())) return
+  } finally {
+    smurfConfirming.value = false
+  }
+
+  const seq = ++smurfRequestSeq
   smurfChecking.value = true
   smurfError.value = ''
   smurfResult.value = null
   smurfExpanded.value = false
+  beginSmurfLoading()
   try {
-    smurfResult.value = await api.smurfCheck(mvpAccountId)
+    const result = await api.smurfCheck(mvpAccountId)
+    if (seq === smurfRequestSeq) smurfResult.value = result
   } catch (e: any) {
-    smurfError.value = e.message || '检测失败'
+    if (seq === smurfRequestSeq) smurfError.value = e.message || '检测失败'
   } finally {
-    smurfChecking.value = false
+    if (seq === smurfRequestSeq) {
+      endSmurfLoading()
+      smurfChecking.value = false
+    }
   }
 }
 
@@ -150,10 +230,14 @@ function smurfScoreColor(score: number): string {
               <button
                 class="smurf-btn"
                 @click="checkSmurf"
-                :disabled="smurfChecking"
+                :disabled="smurfChecking || smurfConfirming"
               >
-                🔍 {{ smurfChecking ? '检测中...' : '这人是小号吗？' }}
+                🔍 {{ smurfChecking || smurfConfirming ? '检测中...' : '这人是小号吗？' }}
               </button>
+              <div v-if="smurfChecking" class="smurf-loading-inline" aria-live="polite">
+                <span class="smurf-inline-spinner"></span>
+                <span>{{ smurfLoadingText }}</span>
+              </div>
               <p v-if="smurfError" class="smurf-error-inline">{{ smurfError }}</p>
             </div>
 
@@ -246,6 +330,24 @@ function smurfScoreColor(score: number): string {
   cursor: pointer; transition: all var(--transition);
 }
 .smurf-btn:hover { border-color: var(--accent); color: var(--accent); }
+.smurf-loading-inline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.smurf-inline-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: smurf-spin 0.8s linear infinite;
+}
+@keyframes smurf-spin { to { transform: rotate(360deg); } }
 .smurf-error-inline { font-size: 12px; color: var(--red-400); margin-top: 6px; }
 
 .smurf-inline-result { margin-top: 10px; }

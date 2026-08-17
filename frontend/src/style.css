@@ -135,4 +135,3 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 .animate-in { animation: fadeInUp .4s ease both; }
 .delay-1 { animation-delay: .05s; } .delay-2 { animation-delay: .1s; }
 .delay-3 { animation-delay: .15s; } .delay-4 { animation-delay: .2s; } .delay-5 { animation-delay: .25s; }
-}

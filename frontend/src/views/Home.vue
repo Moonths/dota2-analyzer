@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, type MatchItem, type SmurfResult } from '../api'
 
@@ -20,9 +20,39 @@ const selectedModel = ref('')
 // ── 捕鱼执法 ──
 const smurfId = ref('')
 const smurfLoading = ref(false)
+const smurfConfirming = ref(false)
 const smurfError = ref('')
 const smurfResult = ref<SmurfResult | null>(null)
 const smurfExpanded = ref(false)
+const smurfLoadingText = ref('正在调取玩家战绩...')
+const smurfLoadingTexts = [
+  '正在调取玩家战绩...',
+  '正在逐场核对比赛数据...',
+  '正在比对英雄基准...',
+  '正在给这条鱼定罪...',
+]
+let smurfTextTimer: number | undefined
+let smurfTextIndex = 0
+let smurfRequestSeq = 0
+let smurfLastRunAt = 0
+
+function beginSmurfLoading() {
+  smurfTextIndex = 0
+  smurfLoadingText.value = smurfLoadingTexts[0]
+  smurfTextTimer = window.setInterval(() => {
+    smurfTextIndex = (smurfTextIndex + 1) % smurfLoadingTexts.length
+    smurfLoadingText.value = smurfLoadingTexts[smurfTextIndex]
+  }, 1600)
+}
+
+function endSmurfLoading() {
+  if (smurfTextTimer) {
+    window.clearInterval(smurfTextTimer)
+    smurfTextTimer = undefined
+  }
+}
+
+onUnmounted(endSmurfLoading)
 
 onMounted(() => {
   const saved = localStorage.getItem('dota2_player_id')
@@ -52,6 +82,25 @@ watch(selectedProvider, () => {
   selectedModel.value = currentModels.value[0] || ''
 })
 
+async function confirmQuota(kind: 'analysis' | 'smurf'): Promise<boolean> {
+  try {
+    const quota = await api.getQuota()
+    const remaining = quota?.remaining ?? quota?.analysis_remaining ?? 0
+    if (remaining <= 0) {
+      const message = kind === 'analysis'
+        ? '今天 3 次分析机会已用完，明天再来。已分析过的比赛仍可重复查看。'
+        : '今天 3 次分析机会已用完，明天再来。'
+      window.alert(message)
+      return false
+    }
+    const label = kind === 'analysis' ? '比赛分析' : '小号检测'
+    return window.confirm(`本次${label}会消耗 1 次机会，今天还剩 ${remaining} 次。确定继续吗？`)
+  } catch {
+    // 额度查询失败时不阻断，由后端接口最终兜底。
+    return true
+  }
+}
+
 // ── 比赛分析 methods ──
 async function searchPlayer() {
   const id = parseInt(playerId.value.trim())
@@ -78,7 +127,7 @@ async function analyzeMatch(matchId: number) {
   })
 }
 
-function goDirectMatch() {
+async function goDirectMatch() {
   const id = parseInt(matchId.value.trim())
   if (!id) { error.value = '请输入有效的比赛ID'; return }
   router.push({
@@ -89,18 +138,35 @@ function goDirectMatch() {
 
 // ── 捕鱼执法 methods ──
 async function runSmurfCheck() {
+  const now = Date.now()
+  if (smurfLoading.value || smurfConfirming.value || now - smurfLastRunAt < 600) return
   const id = parseInt(smurfId.value.trim())
   if (!id) { smurfError.value = '请输入有效的玩家ID'; return }
+
+  smurfLastRunAt = now
+  smurfConfirming.value = true
+  try {
+    if (!(await confirmQuota('smurf'))) return
+  } finally {
+    smurfConfirming.value = false
+  }
+
+  const seq = ++smurfRequestSeq
   smurfLoading.value = true
   smurfError.value = ''
   smurfResult.value = null
   smurfExpanded.value = false
+  beginSmurfLoading()
   try {
-    smurfResult.value = await api.smurfCheck(id)
+    const result = await api.smurfCheck(id)
+    if (seq === smurfRequestSeq) smurfResult.value = result
   } catch (e: any) {
-    smurfError.value = e.message || '检测失败'
+    if (seq === smurfRequestSeq) smurfError.value = e.message || '检测失败'
   } finally {
-    smurfLoading.value = false
+    if (seq === smurfRequestSeq) {
+      endSmurfLoading()
+      smurfLoading.value = false
+    }
   }
 }
 
@@ -208,12 +274,24 @@ function formatTime(ts: number) {
                 class="search-input card-input"
                 @keyup.enter="runSmurfCheck"
               />
-              <button class="btn btn-primary" @click="runSmurfCheck" :disabled="smurfLoading">
-                {{ smurfLoading ? '检测中...' : '检测' }}
+              <button class="btn btn-primary" @click="runSmurfCheck" :disabled="smurfLoading || smurfConfirming">
+                {{ smurfLoading || smurfConfirming ? '检测中...' : '检测' }}
               </button>
             </div>
 
             <p v-if="smurfError" class="error-msg">{{ smurfError }}</p>
+
+            <div v-if="smurfLoading" class="smurf-loading" aria-live="polite">
+              <span class="smurf-spinner"></span>
+              <div class="smurf-loading-copy">
+                <strong>捕鱼执法中</strong>
+                <span>{{ smurfLoadingText }}</span>
+                <small>首次查询较慢，稍后会快很多</small>
+              </div>
+              <div class="smurf-loading-bar">
+                <span></span>
+              </div>
+            </div>
 
             <!-- 检测结果 -->
             <div v-if="smurfResult" class="smurf-result" :class="{ expanded: smurfExpanded }">
@@ -375,6 +453,66 @@ function formatTime(ts: number) {
 }
 .card-input {
   width: 200px; max-width: 60%;
+}
+
+/* ── 捕鱼 loading ── */
+.smurf-loading {
+  margin-top: 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.smurf-spinner {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: smurf-spin 0.8s linear infinite;
+}
+@keyframes smurf-spin { to { transform: rotate(360deg); } }
+.smurf-loading-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.smurf-loading-copy strong {
+  color: var(--ink-1);
+  font-size: 13px;
+}
+.smurf-loading-copy small {
+  color: var(--ink-3);
+  font-size: 10px;
+}
+.smurf-loading-bar {
+  width: 76px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--panel-1);
+}
+.smurf-loading-bar span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: smurf-loading-slide 1.2s ease-in-out infinite;
+}
+@keyframes smurf-loading-slide {
+  0% { transform: translateX(-110%); }
+  50% { transform: translateX(80%); }
+  100% { transform: translateX(220%); }
 }
 
 /* ── 捕鱼结果 ── */

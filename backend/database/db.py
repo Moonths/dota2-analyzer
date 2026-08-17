@@ -1,10 +1,14 @@
+import json
 import aiosqlite
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 DB_DIR = Path("data")
 DB_PATH = DB_DIR / "dota2.db"
 CHINA_TIMEZONE = timezone(timedelta(hours=8))
+DAILY_QUOTA_LIMIT = 3
+QUOTA_TYPE_ANALYSIS = "analysis"
 
 
 async def get_db() -> aiosqlite.Connection:
@@ -122,7 +126,9 @@ async def init_db():
 
 
 async def check_and_deduct_quota(
-    openid: str, quota_type: str, limit: int = 1
+    openid: str,
+    quota_type: str = QUOTA_TYPE_ANALYSIS,
+    limit: int = DAILY_QUOTA_LIMIT,
 ) -> bool:
     """检查并扣除每日配额。返回 True 表示额度可用且已扣除。"""
     from config import settings
@@ -130,38 +136,62 @@ async def check_and_deduct_quota(
         return True
     today = datetime.now(CHINA_TIMEZONE).date().isoformat()
     db = await get_db()
-    async with db.execute(
-        "SELECT count FROM daily_quota "
-        "WHERE openid = ? AND date = ? AND quota_type = ?",
-        (openid, today, quota_type),
-    ) as cursor:
-        row = await cursor.fetchone()
-    if row and row["count"] >= limit:
+    try:
+        async with db.execute(
+            "SELECT COALESCE(SUM(count), 0) AS used FROM daily_quota "
+            "WHERE openid = ? AND date = ?",
+            (openid, today),
+        ) as cursor:
+            row = await cursor.fetchone()
+        used = row["used"] if row else 0
+        if used >= limit:
+            return False
+        await db.execute(
+            "INSERT INTO daily_quota (openid, date, quota_type, count) "
+            "VALUES (?, ?, ?, 1) "
+            "ON CONFLICT(openid, date, quota_type) DO UPDATE SET count = count + 1",
+            (openid, today, quota_type),
+        )
+        await db.commit()
+        return True
+    finally:
         await db.close()
-        return False
-    await db.execute(
-        "INSERT INTO daily_quota (openid, date, quota_type, count) "
-        "VALUES (?, ?, ?, 1) "
-        "ON CONFLICT(openid, date, quota_type) DO UPDATE SET count = count + 1",
-        (openid, today, quota_type),
-    )
-    await db.commit()
-    await db.close()
-    return True
 
 
-async def get_quota_usage(openid: str, quota_type: str) -> int:
+async def get_quota_usage(openid: str, quota_type: str = None) -> int:
     """返回今天已经使用的额度。"""
     from config import settings
     if settings.dev_mode:
         return 0
     today = datetime.now(CHINA_TIMEZONE).date().isoformat()
     db = await get_db()
-    async with db.execute(
-        "SELECT count FROM daily_quota "
-        "WHERE openid = ? AND date = ? AND quota_type = ?",
-        (openid, today, quota_type),
-    ) as cursor:
-        row = await cursor.fetchone()
-    await db.close()
-    return row["count"] if row else 0
+    try:
+        async with db.execute(
+            "SELECT COALESCE(SUM(count), 0) AS used FROM daily_quota "
+            "WHERE openid = ? AND date = ?",
+            (openid, today),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return row["used"] if row else 0
+    finally:
+        await db.close()
+
+
+async def get_cached_analysis_by_match(match_id: int) -> Optional[dict]:
+    """按比赛 ID 读取最近一条已缓存的分析结果。"""
+    db = await get_db()
+    try:
+        async with db.execute(
+            "SELECT analysis_result, share_id FROM match_analyses "
+            "WHERE match_id = ? ORDER BY created_at DESC LIMIT 1",
+            (match_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return None
+        result = json.loads(row["analysis_result"])
+        if not result.get("share_id"):
+            result["share_id"] = row["share_id"]
+        return result
+    finally:
+        await db.close()
