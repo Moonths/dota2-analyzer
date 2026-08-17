@@ -217,6 +217,8 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
 
 <template>
   <view class="home">
+    <image class="home-bg" src="/static/dota2-bg.jpg" mode="aspectFill" />
+    <view class="home-mask"></view>
     <view class="hero">
       <view class="container">
         <text class="hero-title">谁尽力 谁犯罪</text>
@@ -343,9 +345,13 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
 </template>
 
 <style scoped>
+.home{position:relative;min-height:100vh}
+.home-bg{position:fixed;left:0;top:0;width:100%;height:100vh;z-index:0;filter:blur(1.5px);opacity:.9;transform:scale(1.02)}
+.home-mask{position:fixed;left:0;top:0;width:100%;height:100vh;z-index:0;background:linear-gradient(180deg,rgba(17,17,16,.12) 0%,rgba(17,17,16,.48) 100%)}
+.hero{position:relative;z-index:1}
 .hero{padding:88rpx 0 56rpx;text-align:center}
-.hero-title{font-size:68rpx;font-weight:800;margin-bottom:18rpx;color:var(--ink-1);letter-spacing:.04em;display:block}
-.hero-sub{color:var(--text-secondary);margin-bottom:14rpx;font-size:30rpx;font-weight:500;line-height:2.0;display:block;padding:0 20rpx}
+.hero-title{font-size:68rpx;font-weight:800;margin-bottom:18rpx;color:var(--gold-400);letter-spacing:.04em;display:block;text-shadow:0 4rpx 18rpx rgba(0,0,0,.78)}
+.hero-sub{color:#f4ead5;margin-bottom:14rpx;font-size:30rpx;font-weight:600;line-height:2.0;display:block;padding:0 20rpx;text-shadow:0 2rpx 12rpx rgba(0,0,0,.72)}
 .hero-sub:last-of-type{margin-bottom:52rpx}
 .mode-tabs{display:inline-flex;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:40rpx}
 .mode-tab{padding:18rpx 32rpx;font-size:26rpx;font-weight:600;color:var(--text-secondary)}
@@ -375,7 +381,7 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
 @keyframes smurf-progress-move{0%{transform:translateX(-110%)}50%{transform:translateX(70%)}100%{transform:translateX(220%)}}
 
 .error-msg{color:var(--red-400);margin-top:24rpx;font-size:26rpx;font-weight:500;display:block}
-.matches-section{padding:48rpx 0 160rpx}
+.matches-section{position:relative;z-index:1;padding:48rpx 0 160rpx}
 .section-title{font-size:36rpx;font-weight:700;margin-bottom:40rpx;letter-spacing:-.01em;display:block}
 .match-grid{display:flex;flex-direction:column;gap:24rpx}
 .match-card{display:flex;align-items:center;gap:20rpx;padding:28rpx 32rpx;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r)}
