@@ -23,9 +23,9 @@ WEIGHTS = {
     "hero_pool": 0.05,
 }
 
-# ── 缓存过期时间 ──
-PROFILE_CACHE_TTL_SECONDS = 3600
-SMURF_CACHE_TTL_SECONDS = 3600
+# ── 缓存过期时间：小号检测结果按周更新，玩家档案同步按周刷新 ──
+PROFILE_CACHE_TTL_SECONDS = 7 * 24 * 3600
+SMURF_CACHE_TTL_SECONDS = 7 * 24 * 3600
 REQUEST_TIMEOUT_SECONDS = 8
 MATCH_CONCURRENCY = 12
 BENCH_CONCURRENCY = 8
@@ -233,6 +233,27 @@ async def _load_smurf_cache(db, player_id: int) -> Optional[dict]:
         "last_match_count": row["last_match_count"],
         "created_at": row["created_at"],
     }
+
+
+async def get_cached_smurf_result(player_id: int) -> Optional[dict]:
+    """只读返回仍处于有效期的小号检测缓存，供路由在扣费前判断。"""
+    db = await get_db()
+    try:
+        cache = await _load_smurf_cache(db, player_id)
+        if not cache:
+            return None
+        age = _age_seconds(cache["created_at"])
+        if age is None or age >= SMURF_CACHE_TTL_SECONDS:
+            return None
+
+        result = dict(cache["result"])
+        result["cached"] = True
+        result["quota_deducted"] = False
+        result["cache_source"] = "database"
+        result["message"] = "已使用小号检测缓存，不消耗今日分析次数"
+        return result
+    finally:
+        await db.close()
 
 
 async def _load_profile_cache(db, player_id: int) -> Optional[dict]:

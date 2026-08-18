@@ -1,5 +1,6 @@
 """OpenDota API 客户端"""
 import asyncio
+import random
 import httpx
 from typing import Optional
 
@@ -9,29 +10,51 @@ HEADERS = {
     "Accept": "application/json",
 }
 
+TRANSIENT_STATUS_CODES = {
+    429,
+    500,
+    502,
+    503,
+    504,
+    520,
+    521,
+    522,
+    523,
+    524,
+    525,
+    527,
+    530,
+}
 
-async def _request(url: str, params: dict = None, retries: int = 1) -> dict | list:
-    """带重试的请求（仅对临时性错误重试）"""
+
+async def _request(
+    url: str,
+    params: dict = None,
+    retries: int = 2,
+    timeout: float = 30.0,
+) -> dict | list:
+    """带重试的请求，429 和 Cloudflare/上游 5xx 都按瞬时错误处理。"""
     last_err = None
     for attempt in range(retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.get(url, params=params, headers=HEADERS)
                 resp.raise_for_status()
                 return resp.json()
         except httpx.HTTPStatusError as e:
             status = e.response.status_code
-            # 429 限流或 5xx 服务端错误 → 重试；522/523/524 Cloudflare → 不重试
-            if status == 429 or (500 <= status < 522):
+            if status in TRANSIENT_STATUS_CODES:
                 last_err = e
                 if attempt < retries:
-                    await asyncio.sleep(2 * (attempt + 1))
+                    delay = min(1.5 * (2 ** attempt), 8.0) + random.uniform(0, 0.4)
+                    await asyncio.sleep(delay)
                     continue
             raise
-        except (httpx.ConnectError, httpx.ReadError) as e:
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException) as e:
             last_err = e
             if attempt < retries:
-                await asyncio.sleep(2 * (attempt + 1))
+                delay = min(1.5 * (2 ** attempt), 8.0) + random.uniform(0, 0.4)
+                await asyncio.sleep(delay)
                 continue
             raise
     raise last_err
@@ -39,7 +62,7 @@ async def _request(url: str, params: dict = None, retries: int = 1) -> dict | li
 
 async def get_match(match_id: int) -> dict:
     """获取单场比赛完整数据"""
-    return await _request(f"{BASE_URL}/matches/{match_id}")
+    return await _request(f"{BASE_URL}/matches/{match_id}", retries=3, timeout=20.0)
 
 
 async def get_player(player_id: int) -> dict:

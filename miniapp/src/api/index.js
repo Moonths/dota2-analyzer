@@ -1,5 +1,7 @@
 import { ensureLogin, getOpenid } from '../utils/auth.js'
 
+const ANALYSIS_CACHE_PREFIX = 'dota2_analysis_cache_'
+
 // 根据运行环境选择 API 基地址
 const BASE = (function() {
   // #ifdef H5
@@ -51,6 +53,9 @@ export const api = {
   getMatchInfo(id) {
     return request(`/matches/${id}`)
   },
+  getCachedAnalysis(matchId) {
+    return request(`/analysis/${matchId}/cache`)
+  },
   async analyze(matchId, provider, model) {
     await ensureLogin()
     return request('/analyze', {
@@ -68,8 +73,28 @@ export const api = {
   getSharedAnalysis(shareId) {
     return request(`/share/${shareId}`)
   },
+  getCachedSmurf(playerId) {
+    return request(`/smurf-check/${playerId}/cache`)
+  },
   async smurfCheck(playerId) {
     await ensureLogin()
     return request(`/smurf-check/${playerId}?openid=${getOpenid()}`, { timeout: 60000 })
   },
+}
+
+export function getCachedAnalysisLocal(matchId) {
+  try {
+    const raw = uni.getStorageSync(`${ANALYSIS_CACHE_PREFIX}${matchId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed && parsed.share_id ? parsed : null
+  } catch (e) {
+    return null
+  }
+}
+
+export function setCachedAnalysisLocal(matchId, result) {
+  try {
+    uni.setStorageSync(`${ANALYSIS_CACHE_PREFIX}${matchId}`, JSON.stringify(result))
+  } catch (e) {}
 }

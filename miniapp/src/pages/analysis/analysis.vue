@@ -1,7 +1,11 @@
 <script setup>
 import { ref, computed, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { api } from '../../api/index.js'
+import {
+  api,
+  getCachedAnalysisLocal,
+  setCachedAnalysisLocal,
+} from '../../api/index.js'
 import { drawShareCard } from '../../utils/shareImage.js'
 import PlayerCard from '../../components/PlayerCard.vue'
 import PositionEval from '../../components/PositionEval.vue'
@@ -14,6 +18,7 @@ const error = ref('')
 const limitReached = ref(false)
 const activeTeam = ref('radiant')
 const loadingText = ref('正在查阅比赛录像...')
+const cacheHint = ref('')
 
 // ── 小号检测 ──
 const smurfChecking = ref(false)
@@ -22,6 +27,7 @@ const smurfResult = ref(null)
 const smurfError = ref('')
 const smurfExpanded = ref(false)
 const shareImagePath = ref('')
+const smurfCacheHint = ref('')
 const smurfLoadingText = ref('正在调取玩家战绩...')
 const smurfLoadingTexts = [
   '正在调取玩家战绩...',
@@ -56,7 +62,7 @@ function endSmurfLoading() {
 
 onLoad((options) => {
   matchId.value = options.matchId
-  promptBeforeAnalyze(options.provider || undefined, options.model || undefined)
+  initializeAnalysis(options.provider || undefined, options.model || undefined)
 })
 
 onUnmounted(() => {
@@ -79,6 +85,46 @@ function showQuotaModal(remaining, kind = 'analysis') {
       fail: () => resolve(false),
     })
   })
+}
+
+function applyResult(value, hint) {
+  result.value = value
+  activeTeam.value = value.radiant_win ? 'dire' : 'radiant'
+  cacheHint.value = hint
+}
+
+function loadLocalAnalysis(matchIdNumber) {
+  const local = getCachedAnalysisLocal(matchIdNumber)
+  if (!local) return false
+  loading.value = false
+  applyResult(local, '已使用本地缓存，不消耗今日分析次数')
+  return true
+}
+
+async function loadSharedAnalysis(matchIdNumber) {
+  try {
+    const cached = await api.getCachedAnalysis(matchIdNumber)
+    if (cached && cached.share_id) {
+      setCachedAnalysisLocal(matchIdNumber, cached)
+      loading.value = false
+      applyResult(cached, cached.message || '已使用共享缓存，不消耗今日分析次数')
+      return true
+    }
+  } catch (e) {}
+  return false
+}
+
+async function initializeAnalysis(provider, model) {
+  const matchIdNumber = parseInt(matchId.value)
+  if (!matchIdNumber) {
+    error.value = '无效的比赛ID'
+    loading.value = false
+    return
+  }
+
+  if (loadLocalAnalysis(matchIdNumber)) return
+  if (await loadSharedAnalysis(matchIdNumber)) return
+  promptBeforeAnalyze(provider, model)
 }
 
 async function promptBeforeAnalyze(provider, model) {
@@ -107,6 +153,10 @@ async function doAnalyze(provider, model) {
     result.value = await api.analyze(parseInt(matchId.value), provider, model)
     if (result.value) {
       activeTeam.value = result.value.radiant_win ? 'dire' : 'radiant'
+      setCachedAnalysisLocal(parseInt(matchId.value), result.value)
+      cacheHint.value = result.value.cached
+        ? (result.value.message || '已使用共享缓存，不消耗今日分析次数')
+        : ''
       drawShareCard(result.value.scapegoat, result.value.mvp).then(p => { shareImagePath.value = p })
     }
   } catch (e) {
@@ -146,6 +196,16 @@ async function checkSmurf() {
   smurfLastRunAt = now
   smurfConfirming.value = true
   try {
+    try {
+      const cached = await api.getCachedSmurf(aid)
+      if (cached && typeof cached.score === 'number') {
+        smurfResult.value = cached
+        smurfExpanded.value = false
+        smurfCacheHint.value = cached.message || '已使用小号检测缓存，不消耗今日次数'
+        return
+      }
+    } catch (e) {}
+
     const quota = await api.getQuota()
     const remaining = quota && typeof quota.remaining === 'number'
       ? quota.remaining
@@ -162,11 +222,14 @@ async function checkSmurf() {
   }
 
   const seq = ++smurfRequestSeq
-  smurfChecking.value=true;smurfError.value='';smurfResult.value=null;smurfExpanded.value=false
+  smurfChecking.value=true;smurfError.value='';smurfResult.value=null;smurfExpanded.value=false;smurfCacheHint.value=''
   beginSmurfLoading()
   try {
     const result = await api.smurfCheck(aid)
-    if (seq === smurfRequestSeq) smurfResult.value = result
+    if (seq === smurfRequestSeq) {
+      smurfResult.value = result
+      smurfCacheHint.value = result.cached ? (result.message || '已使用缓存，不消耗次数') : ''
+    }
   } catch(e) {
     if (seq === smurfRequestSeq) smurfError.value = e.message || '检测失败'
   } finally {
@@ -207,10 +270,11 @@ function onShareAppMessage() {
     <template v-else-if="result">
       <view class="container">
         <view class="match-overview"><view class="overview-left"><text class="match-id">Match #{{ result.match_id }}</text><text class="match-skill">{{ result.skill_level }}</text><text class="match-duration">{{ formatDuration(result.duration) }}</text></view><view class="overview-right"><view class="btn btn-sm" @click="copyShareUrl"><text>分享</text></view></view></view>
+        <text v-if="cacheHint" class="cache-hint">{{ cacheHint }}</text>
         <text v-if="result.game_summary" class="game-summary">{{ result.game_summary }}</text>
         <view class="hero-cards">
           <view class="hero-card sg-card"><view class="card-badge sg-badge"><text>🤡 背锅侠</text></view><PlayerCard :player="result.scapegoat" /><text class="card-reason">{{ result.scapegoat.reason }}</text></view>
-          <view class="hero-card mvp-card"><view class="card-badge mvp-badge"><text>🏆 MVP</text></view><PlayerCard :player="result.mvp" /><text class="card-reason">{{ result.mvp.reason }}</text><view class="smurf-action"><view class="smurf-btn" @click="checkSmurf"><text>🔍 {{ smurfChecking || smurfConfirming ?'检测中...':'这人是小号吗？' }}</text></view><view v-if="smurfChecking || smurfConfirming" class="smurf-checking"><view class="smurf-checking-spinner"></view><text>{{ smurfLoadingText }}</text></view><text v-if="smurfError" class="smurf-error-inline">{{ smurfError }}</text></view><view v-if="smurfResult" class="smurf-inline"><view class="smurf-inline-score"><text class="smurf-inline-num" :style="{color:smurfColor(smurfResult.score)}">{{ Math.round(smurfResult.score*100) }}%</text><text class="smurf-inline-label" :style="{color:smurfColor(smurfResult.score)}">{{ smurfLabel(smurfResult.score) }}</text></view><text class="smurf-inline-roast">{{ smurfResult.roast }}</text><view v-if="smurfExpanded" class="smurf-inline-details"><view v-for="s in smurfResult.signals" :key="s.label" class="smurf-inline-signal"><text class="sis-label">{{ s.label }}</text><text class="sis-value">{{ s.value }}</text></view></view><view class="smurf-toggle" @click="smurfExpanded=!smurfExpanded"><text>{{ smurfExpanded?'收起 ▲':'展开 ▼' }}</text></view></view></view>
+          <view class="hero-card mvp-card"><view class="card-badge mvp-badge"><text>🏆 MVP</text></view><PlayerCard :player="result.mvp" /><text class="card-reason">{{ result.mvp.reason }}</text><view class="smurf-action"><view class="smurf-btn" @click="checkSmurf"><text>🔍 {{ smurfChecking || smurfConfirming ?'检测中...':'这人是小号吗？' }}</text></view><view v-if="smurfChecking || smurfConfirming" class="smurf-checking"><view class="smurf-checking-spinner"></view><text>{{ smurfLoadingText }}</text></view><text v-if="smurfError" class="smurf-error-inline">{{ smurfError }}</text></view><view v-if="smurfResult" class="smurf-inline"><view class="smurf-inline-score"><text class="smurf-inline-num" :style="{color:smurfColor(smurfResult.score)}">{{ Math.round(smurfResult.score*100) }}%</text><text class="smurf-inline-label" :style="{color:smurfColor(smurfResult.score)}">{{ smurfLabel(smurfResult.score) }}</text></view><text class="smurf-inline-roast">{{ smurfResult.roast }}</text><text v-if="smurfCacheHint" class="smurf-cache-hint">{{ smurfCacheHint }}</text><view v-if="smurfExpanded" class="smurf-inline-details"><view v-for="s in smurfResult.signals" :key="s.label" class="smurf-inline-signal"><text class="sis-label">{{ s.label }}</text><text class="sis-value">{{ s.value }}</text></view></view><view class="smurf-toggle" @click="smurfExpanded=!smurfExpanded"><text>{{ smurfExpanded?'收起 ▲':'展开 ▼' }}</text></view></view></view>
         </view>
         <view class="team-tabs">
           <view :class="['team-tab','radiant',{active:activeTeam==='radiant'}]" @click="activeTeam='radiant'"><view class="team-dot radiant-dot"><view class="dot-inner"></view></view><text>天辉</text><text v-if="result.radiant_win" class="crown">WIN</text></view>
@@ -248,6 +312,7 @@ function onShareAppMessage() {
 .limit-hint{color:var(--ink-3);font-size:24rpx;display:block;margin-bottom:32rpx;line-height:1.6}
 .btn-back{display:inline-flex;align-items:center;padding:20rpx 48rpx;border-radius:var(--r-sm);font-size:26rpx;font-weight:600;border:1px solid var(--border);background:var(--bg);color:var(--text-primary)}
 .match-overview{display:flex;justify-content:space-between;align-items:center;padding:32rpx 40rpx;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);margin-bottom:40rpx}
+.cache-hint{text-align:center;font-size:22rpx;color:var(--accent);background:var(--accent-soft);padding:12rpx 20rpx;border-radius:var(--r-sm);margin:-16rpx 0 32rpx;display:block}
 .overview-left{display:flex;gap:16rpx;align-items:center;font-size:26rpx;color:var(--text-secondary);flex:1;min-width:0}
 .overview-right{flex-shrink:0;white-space:nowrap;margin-left:16rpx}
 .match-id{font-weight:700;color:var(--text-primary);font-size:28rpx;white-space:nowrap;flex-shrink:0}
@@ -294,6 +359,7 @@ function onShareAppMessage() {
 .smurf-inline-num{font-size:32rpx;font-weight:800}
 .smurf-inline-label{font-size:20rpx;font-weight:700;background:rgba(255,255,255,.05);padding:2rpx 12rpx;border-radius:var(--r-sm)}
 .smurf-inline-roast{font-size:24rpx;color:var(--ink-2);line-height:1.6;font-style:italic;margin-bottom:12rpx;display:block}
+.smurf-cache-hint{font-size:22rpx;color:var(--accent);margin:-4rpx 0 12rpx;display:block}
 .smurf-inline-details{display:flex;flex-wrap:wrap;gap:8rpx 20rpx;margin-bottom:10rpx}
 .smurf-inline-signal{display:flex;align-items:center;gap:6rpx;font-size:22rpx}
 .sis-label{color:var(--ink-3)}

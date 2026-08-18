@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type AnalysisResult, type SmurfResult } from '../api'
+import {
+  api,
+  getCachedAnalysisLocal,
+  setCachedAnalysisLocal,
+  type AnalysisResult,
+  type SmurfResult,
+} from '../api'
 import PlayerCard from '../components/PlayerCard.vue'
 import PositionEval from '../components/PositionEval.vue'
 import Timeline from '../components/Timeline.vue'
@@ -15,6 +21,7 @@ const loading = ref(true)
 const error = ref('')
 const shareCopied = ref(false)
 const activeTeam = ref<'radiant' | 'dire'>('radiant')
+const cacheHint = ref('')
 
 // ── 小号检测 ──
 const smurfChecking = ref(false)
@@ -22,6 +29,7 @@ const smurfConfirming = ref(false)
 const smurfResult = ref<SmurfResult | null>(null)
 const smurfError = ref('')
 const smurfExpanded = ref(false)
+const smurfCacheHint = ref('')
 const smurfLoadingText = ref('正在调取玩家战绩...')
 const smurfLoadingTexts = [
   '正在调取玩家战绩...',
@@ -65,7 +73,49 @@ async function confirmAnalysisQuota(): Promise<boolean> {
   }
 }
 
+function applyResult(value: AnalysisResult, hint: string) {
+  result.value = value
+  activeTeam.value = value.radiant_win ? 'dire' : 'radiant'
+  cacheHint.value = hint
+}
+
+function loadLocalAnalysis(matchId: number): boolean {
+  const local = getCachedAnalysisLocal(matchId)
+  if (!local) return false
+  applyResult(local, '已使用本地缓存，不消耗今日分析次数')
+  return true
+}
+
+async function loadSharedAnalysis(matchId: number): Promise<boolean> {
+  try {
+    const cached = await api.getCachedAnalysis(matchId)
+    if (cached?.share_id) {
+      setCachedAnalysisLocal(matchId, cached)
+      applyResult(cached, cached.message || '已使用共享缓存，不消耗今日分析次数')
+      return true
+    }
+  } catch {}
+  return false
+}
+
 onMounted(async () => {
+  const matchId = parseInt(props.matchId)
+  if (Number.isNaN(matchId)) {
+    error.value = '无效的比赛ID'
+    loading.value = false
+    return
+  }
+
+  if (loadLocalAnalysis(matchId)) {
+    loading.value = false
+    return
+  }
+
+  if (await loadSharedAnalysis(matchId)) {
+    loading.value = false
+    return
+  }
+
   const provider = (route.query.provider as string) || undefined
   const model = (route.query.model as string) || undefined
   if (!(await confirmAnalysisQuota())) {
@@ -75,9 +125,13 @@ onMounted(async () => {
   }
   try {
     loading.value = true
-    result.value = await api.analyze(parseInt(props.matchId), provider, model)
+    result.value = await api.analyze(matchId, provider, model)
     if (result.value) {
       activeTeam.value = result.value.radiant_win ? 'dire' : 'radiant'
+      setCachedAnalysisLocal(matchId, result.value)
+      cacheHint.value = result.value.cached
+        ? (result.value.message || '已使用共享缓存，不消耗今日分析次数')
+        : ''
     }
   } catch (e: any) {
     error.value = e.message || '分析失败'
@@ -145,6 +199,16 @@ async function checkSmurf() {
   smurfLastRunAt = now
   smurfConfirming.value = true
   try {
+    try {
+      const cached = await api.getCachedSmurf(mvpAccountId)
+      if (cached?.score !== undefined) {
+        smurfResult.value = cached
+        smurfExpanded.value = false
+        smurfCacheHint.value = cached.message || '已使用小号检测缓存，不消耗今日次数'
+        return
+      }
+    } catch {}
+
     if (!(await confirmSmurfQuota())) return
   } finally {
     smurfConfirming.value = false
@@ -155,10 +219,14 @@ async function checkSmurf() {
   smurfError.value = ''
   smurfResult.value = null
   smurfExpanded.value = false
+  smurfCacheHint.value = ''
   beginSmurfLoading()
   try {
     const result = await api.smurfCheck(mvpAccountId)
-    if (seq === smurfRequestSeq) smurfResult.value = result
+    if (seq === smurfRequestSeq) {
+      smurfResult.value = result
+      smurfCacheHint.value = result.cached ? (result.message || '已使用缓存，不消耗次数') : ''
+    }
   } catch (e: any) {
     if (seq === smurfRequestSeq) smurfError.value = e.message || '检测失败'
   } finally {
@@ -216,6 +284,8 @@ function smurfScoreColor(score: number): string {
           </div>
         </div>
 
+        <p v-if="cacheHint" class="cache-hint">{{ cacheHint }}</p>
+
         <p v-if="result.game_summary" class="game-summary">{{ result.game_summary }}</p>
 
         <!-- MVP + 背锅侠 双卡 -->
@@ -252,6 +322,7 @@ function smurfScoreColor(score: number): string {
                 </span>
               </div>
               <p class="smurf-inline-roast">{{ smurfResult.roast }}</p>
+              <p v-if="smurfCacheHint" class="smurf-cache-hint">{{ smurfCacheHint }}</p>
               <div v-if="smurfExpanded" class="smurf-inline-details">
                 <div v-for="s in smurfResult.signals" :key="s.label" class="smurf-inline-signal">
                   <span class="sis-label">{{ s.label }}</span>
@@ -309,6 +380,7 @@ function smurfScoreColor(score: number): string {
 .overview-left { display: flex; gap: 16px; align-items: center; font-size: 13px; color: var(--text-secondary); }
 .match-id { font-weight: 700; color: var(--text-primary); font-size: 14px; }
 .match-skill { background: var(--accent-soft); color: var(--accent); padding: 2px 10px; border-radius: var(--r-sm); font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
+.cache-hint { text-align: center; font-size: 12px; color: var(--accent); background: var(--accent-soft); padding: 7px 12px; border-radius: var(--r-sm); margin: -8px 0 20px; }
 .game-summary { text-align: center; font-size: 15px; color: var(--text-secondary); font-style: italic; padding: 16px 0 24px; border-bottom: 1px solid var(--border); margin-bottom: 28px; line-height: 1.6; }
 .hero-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 32px; }
 @media (max-width: 640px) { .hero-cards { grid-template-columns: 1fr; } }
@@ -355,6 +427,7 @@ function smurfScoreColor(score: number): string {
 .smurf-inline-num { font-size: 18px; font-weight: 800; }
 .smurf-inline-label { font-size: 11px; font-weight: 700; background: rgba(255,255,255,.05); padding: 1px 8px; border-radius: var(--r-sm); }
 .smurf-inline-roast { font-size: 12px; color: var(--ink-2); line-height: 1.6; font-style: italic; margin-bottom: 8px; }
+.smurf-cache-hint { font-size: 11px; color: var(--accent); margin: -2px 0 8px; }
 .smurf-inline-details { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 6px; }
 .smurf-inline-signal { display: flex; align-items: center; gap: 4px; font-size: 11px; }
 .sis-label { color: var(--ink-3); }

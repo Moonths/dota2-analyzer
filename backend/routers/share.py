@@ -12,10 +12,17 @@ async def get_shared_analysis(share_id: str):
     """通过分享ID获取已缓存的分析结果"""
     db = await get_db()
     async with db.execute(
-        "SELECT analysis_result FROM match_analyses WHERE share_id = ?",
+        "SELECT analysis_result FROM match_analysis_cache WHERE share_id = ?",
         (share_id,)
     ) as cursor:
         row = await cursor.fetchone()
+
+    if not row:
+        async with db.execute(
+            "SELECT analysis_result FROM match_analyses WHERE share_id = ?",
+            (share_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
     await db.close()
 
     if not row:

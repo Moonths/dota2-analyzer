@@ -26,6 +26,7 @@ const smurfConfirming = ref(false)
 const smurfError = ref('')
 const smurfResult = ref(null)
 const smurfExpanded = ref(false)
+const smurfCacheHint = ref('')
 const smurfLoadingText = ref('正在调取玩家战绩...')
 const smurfLoadingTexts = [
   '正在调取玩家战绩...',
@@ -167,6 +168,16 @@ async function runSmurfCheck() {
   smurfLastRunAt = now
   smurfConfirming.value = true
   try {
+    try {
+      const cached = await api.getCachedSmurf(id)
+      if (cached && typeof cached.score === 'number') {
+        smurfResult.value = cached
+        smurfExpanded.value = false
+        smurfCacheHint.value = cached.message || '已使用小号检测缓存，不消耗今日次数'
+        return
+      }
+    } catch (e) {}
+
     if (!(await confirmQuota('smurf'))) return
   } finally {
     smurfConfirming.value = false
@@ -174,12 +185,13 @@ async function runSmurfCheck() {
 
   const seq = ++smurfRequestSeq
   smurfLoading.value = true; smurfError.value = ''
-  smurfResult.value = null; smurfExpanded.value = false
+  smurfResult.value = null; smurfExpanded.value = false; smurfCacheHint.value = ''
   beginSmurfLoading()
   try {
     const result = await api.smurfCheck(id)
     if (seq === smurfRequestSeq) {
       smurfResult.value = result
+      smurfCacheHint.value = result.cached ? (result.message || '已使用缓存，不消耗次数') : ''
       saveHistory('smurf', id.toString(), `查小号 ${id}`)
       showHistory.value = false
     }
@@ -301,6 +313,7 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
             <text class="smurf-score-label" :style="{color: smurfColor(smurfResult.score)}">{{ smurfLabel(smurfResult.score) }}</text>
           </view>
           <text class="smurf-roast">{{ smurfResult.roast }}</text>
+          <text v-if="smurfCacheHint" class="smurf-cache-hint">{{ smurfCacheHint }}</text>
           <view v-if="smurfExpanded" class="smurf-details">
             <view v-for="s in smurfResult.signals" :key="s.label" class="smurf-signal">
               <view class="signal-header">
@@ -407,6 +420,7 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
 .smurf-score-num{font-size:36rpx;font-weight:800;min-width:80rpx;text-align:right}
 .smurf-score-label{font-size:22rpx;font-weight:700;background:rgba(255,255,255,.05);padding:4rpx 16rpx;border-radius:var(--r-sm)}
 .smurf-roast{font-size:26rpx;color:var(--ink-2);line-height:1.6;font-style:italic;margin-bottom:16rpx;display:block}
+.smurf-cache-hint{font-size:22rpx;color:var(--accent);margin:-8rpx 0 16rpx;display:block}
 .smurf-details{margin-top:16rpx}
 .smurf-signal{margin-bottom:16rpx}
 .signal-header{display:flex;justify-content:space-between;font-size:24rpx;margin-bottom:6rpx}

@@ -24,6 +24,7 @@ const smurfConfirming = ref(false)
 const smurfError = ref('')
 const smurfResult = ref<SmurfResult | null>(null)
 const smurfExpanded = ref(false)
+const smurfCacheHint = ref('')
 const smurfLoadingText = ref('正在调取玩家战绩...')
 const smurfLoadingTexts = [
   '正在调取玩家战绩...',
@@ -146,6 +147,16 @@ async function runSmurfCheck() {
   smurfLastRunAt = now
   smurfConfirming.value = true
   try {
+    try {
+      const cached = await api.getCachedSmurf(id)
+      if (cached?.score !== undefined) {
+        smurfResult.value = cached
+        smurfExpanded.value = false
+        smurfCacheHint.value = cached.message || '已使用小号检测缓存，不消耗今日次数'
+        return
+      }
+    } catch {}
+
     if (!(await confirmQuota('smurf'))) return
   } finally {
     smurfConfirming.value = false
@@ -156,10 +167,14 @@ async function runSmurfCheck() {
   smurfError.value = ''
   smurfResult.value = null
   smurfExpanded.value = false
+  smurfCacheHint.value = ''
   beginSmurfLoading()
   try {
     const result = await api.smurfCheck(id)
-    if (seq === smurfRequestSeq) smurfResult.value = result
+    if (seq === smurfRequestSeq) {
+      smurfResult.value = result
+      smurfCacheHint.value = result.cached ? (result.message || '已使用缓存，不消耗次数') : ''
+    }
   } catch (e: any) {
     if (seq === smurfRequestSeq) smurfError.value = e.message || '检测失败'
   } finally {
@@ -314,6 +329,7 @@ function formatTime(ts: number) {
               </div>
 
               <p class="smurf-roast">{{ smurfResult.roast }}</p>
+              <p v-if="smurfCacheHint" class="smurf-cache-hint">{{ smurfCacheHint }}</p>
 
               <div v-if="smurfExpanded" class="smurf-details">
                 <div
@@ -541,6 +557,9 @@ function formatTime(ts: number) {
 .smurf-roast {
   font-size: 13px; color: var(--ink-2); line-height: 1.6;
   font-style: italic; margin-bottom: 10px;
+}
+.smurf-cache-hint {
+  font-size: 11px; color: var(--accent); margin: -2px 0 10px;
 }
 
 .smurf-details { margin-top: 10px; }

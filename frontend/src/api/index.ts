@@ -1,5 +1,6 @@
 const BASE = '/api'
 const CLIENT_ID_KEY = 'dota2_client_id'
+const ANALYSIS_CACHE_PREFIX = 'dota2_analysis_cache_'
 
 function getClientId(): string {
   const saved = localStorage.getItem(CLIENT_ID_KEY)
@@ -123,6 +124,10 @@ export interface AnalysisResult {
   share_url: string
   radiant_players: PlayerCard[]
   dire_players: PlayerCard[]
+  cached?: boolean
+  quota_deducted?: boolean
+  cache_source?: string
+  message?: string
 }
 
 export interface ProviderItem {
@@ -156,6 +161,27 @@ export interface SmurfResult {
   signals: SmurfSignal[]
   roast: string
   details: Record<string, number>
+  cached?: boolean
+  quota_deducted?: boolean
+  cache_source?: string
+  message?: string
+}
+
+export function getCachedAnalysisLocal(matchId: number): AnalysisResult | null {
+  try {
+    const raw = localStorage.getItem(`${ANALYSIS_CACHE_PREFIX}${matchId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as AnalysisResult
+    return parsed?.share_id ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+export function setCachedAnalysisLocal(matchId: number, result: AnalysisResult): void {
+  try {
+    localStorage.setItem(`${ANALYSIS_CACHE_PREFIX}${matchId}`, JSON.stringify(result))
+  } catch {}
 }
 
 export const api = {
@@ -168,10 +194,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ match_id: matchId, provider, model, openid: getClientId() }),
     }),
+  getCachedAnalysis: (matchId: number) =>
+    request<AnalysisResult>(`/analysis/${matchId}/cache`),
   getProviders: () => request<{ providers: ProviderItem[] }>('/providers'),
   getQuota: () => request<Quota>(`/quota?openid=${encodeURIComponent(getClientId())}`),
   getSharedAnalysis: (shareId: string) =>
     request<AnalysisResult>(`/share/${shareId}`),
+  getCachedSmurf: (playerId: number) =>
+    request<SmurfResult>(`/smurf-check/${playerId}/cache`),
   smurfCheck: (playerId: number) =>
     request<SmurfResult>(`/smurf-check/${playerId}?openid=${encodeURIComponent(getClientId())}`, { timeout: 60000 }),
 }
