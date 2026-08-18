@@ -215,7 +215,7 @@ HERO_SECONDARY: dict[int, list[int]] = {
     114: [3,2],   # Monkey King 齐天大圣
     119: [5],   # Dark Willow 邪影芳灵
     120: [3],   # Pangolier 石鳞剑士
-    121: [5],   # Grimstroke 天涯墨客
+    121: [5,2],   # Grimstroke 天涯墨客
     123: [5],   # Hoodwink 森海飞霞
     128: [5],   # Snapfire 电炎绝手
     131: [5],   # Ringmaster 百戏大王
