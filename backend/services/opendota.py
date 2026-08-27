@@ -60,9 +60,25 @@ async def _request(
     raise last_err
 
 
-async def get_match(match_id: int) -> dict:
-    """获取单场比赛完整数据"""
-    return await _request(f"{BASE_URL}/matches/{match_id}", retries=3, timeout=20.0)
+async def get_match(match_id: int, retries: int = 3) -> dict:
+    """获取单场比赛完整数据 (retries 可降为 0/1 用于轮询场景)"""
+    return await _request(f"{BASE_URL}/matches/{match_id}", retries=retries, timeout=20.0)
+
+
+async def request_parse(match_id: int) -> bool:
+    """提交 replay 解析任务 (objectives/teamfights 等日志数据需要解析后才有)。
+
+    正确端点是 POST /request/{match_id} (免费档消耗 10 个限速单位),
+    解析异步进行, 返回是否成功提交。
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(
+                f"{BASE_URL}/request/{match_id}", headers=HEADERS
+            )
+            return resp.status_code in (200, 201, 202)
+    except Exception:
+        return False
 
 
 async def get_player(player_id: int) -> dict:
@@ -73,6 +89,28 @@ async def get_player(player_id: int) -> dict:
 async def get_player_matches(player_id: int, limit: int = 20) -> list[dict]:
     """获取玩家最近比赛列表"""
     return await _request(f"{BASE_URL}/players/{player_id}/matches", {"limit": limit})
+
+
+async def get_player_ratings(player_id: int) -> list[dict]:
+    """获取玩家历史段位记录。
+
+    OpenDota 从 2025-12 起在处理排位赛时记录每位玩家的当时段位,
+    每条记录: {"time": "2025-12-12T15:57:04.125Z", "rank_tier": 23}。
+    时间戳与比赛结束时刻对齐 (与 STRATZ 同源)。
+    限制: 无法回填 2025-12 之前的比赛; 不朽/排行榜玩家返回空数组。
+    """
+    return await _request(f"{BASE_URL}/players/{player_id}/ratings")
+
+
+async def get_player_matches_full(
+    player_id: int, limit: int = 100, project: list[str] | None = None
+) -> list[dict]:
+    """获取玩家比赛列表，可指定 project 字段扩展返回（如 rank_tier / start_time）。"""
+    params: dict = {"limit": limit}
+    if project:
+        # OpenDota 接受多次同名 project 参数
+        params["project"] = project
+    return await _request(f"{BASE_URL}/players/{player_id}/matches", params)
 
 
 async def get_heroes() -> dict[int, dict]:

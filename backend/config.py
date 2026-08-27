@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     share_base_url: str = "http://localhost:8000"
     wechat_appid: str = ""
     wechat_secret: str = ""
+    steam_api_key: str = ""
 
     class Config:
         env_file = ".env"

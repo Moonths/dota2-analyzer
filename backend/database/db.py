@@ -140,6 +140,203 @@ async def _migrate_v4_add_match_analysis_cache(db: aiosqlite.Connection):
     await db.commit()
 
 
+async def _migrate_v5_add_users_table(db: aiosqlite.Connection):
+    """v5: 用户表 — 微信身份与 Steam 账号绑定 + Dota 档案缓存"""
+    await db.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            openid TEXT PRIMARY KEY,
+            steam_id64 TEXT NOT NULL UNIQUE,
+            account_id INTEGER NOT NULL,
+            steam_name TEXT,
+            avatar TEXT,
+            profile_url TEXT,
+            rank_tier INTEGER,
+            rank_name TEXT,
+            mmr_estimate INTEGER,
+            win_rate REAL,
+            total_games INTEGER,
+            main_position INTEGER,
+            main_position_label TEXT,
+            refreshed_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_users_account ON users(account_id);
+    """)
+    await db.commit()
+
+
+async def _migrate_v6_add_challenge_tables(db: aiosqlite.Connection):
+    """v6: 约战 — 活动表 + 参与者表（报名时快照资料，解绑也不丢展示）"""
+    await db.executescript("""
+        CREATE TABLE IF NOT EXISTS challenges (
+            id TEXT PRIMARY KEY,
+            creator_openid TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            activity_time TEXT NOT NULL,
+            mmr_min INTEGER,
+            mmr_max INTEGER,
+            max_players INTEGER NOT NULL DEFAULT 10,
+            mode TEXT NOT NULL DEFAULT 'free',
+            team_a_name TEXT DEFAULT '天辉',
+            team_b_name TEXT DEFAULT '夜魇',
+            status TEXT NOT NULL DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_challenges_status
+            ON challenges(status, activity_time);
+        CREATE TABLE IF NOT EXISTS challenge_participants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenge_id TEXT NOT NULL,
+            openid TEXT NOT NULL,
+            team INTEGER NOT NULL DEFAULT -1,
+            steam_name TEXT DEFAULT '',
+            avatar TEXT DEFAULT '',
+            rank_name TEXT,
+            mmr INTEGER,
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (challenge_id, openid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cp_challenge
+            ON challenge_participants(challenge_id);
+        CREATE INDEX IF NOT EXISTS idx_cp_openid
+            ON challenge_participants(openid);
+    """)
+    await db.commit()
+
+
+async def _migrate_v7_rank_tier_gates(db: aiosqlite.Connection):
+    """v7: 约战门槛从 MMR 改为段位 (rank_tier)。保留旧 mmr_min/mmr_max 列不删，新代码只用 rank_tier_*。"""
+    async with db.execute("PRAGMA table_info(challenges)") as cursor:
+        rows = await cursor.fetchall()
+    cols = {r[1] for r in rows}
+    if "rank_tier_min" not in cols:
+        await db.execute("ALTER TABLE challenges ADD COLUMN rank_tier_min INTEGER")
+    if "rank_tier_max" not in cols:
+        await db.execute("ALTER TABLE challenges ADD COLUMN rank_tier_max INTEGER")
+
+    async with db.execute("PRAGMA table_info(challenge_participants)") as cursor:
+        rows = await cursor.fetchall()
+    pcols = {r[1] for r in rows}
+    if "rank_tier" not in pcols:
+        await db.execute("ALTER TABLE challenge_participants ADD COLUMN rank_tier INTEGER")
+    await db.commit()
+
+
+async def _migrate_v8_challenge_matches(db: aiosqlite.Connection):
+    """v8: 约战挂比赛 — 发起人录入比赛ID，按 account_id 自动归属到参与者。"""
+    await db.executescript("""
+        CREATE TABLE IF NOT EXISTS challenge_matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenge_id TEXT NOT NULL,
+            match_id INTEGER NOT NULL,
+            submitted_by TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (challenge_id, match_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cm_challenge
+            ON challenge_matches(challenge_id);
+    """)
+    await db.commit()
+
+
+async def _migrate_v9_challenge_match_players(db: aiosqlite.Connection):
+    """v9: 持久化每场比赛 10 个 player 的归属 + 雷达数据，避免重复调 OpenDota。
+
+    录入时一次性写入；GET /matches 走 redis 缓存 + 本表兜底。
+    主页胜率也从本表 SUM(is_winner) 统计。
+    """
+    await db.executescript("""
+        CREATE TABLE IF NOT EXISTS challenge_match_players (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenge_id TEXT NOT NULL,
+            match_id INTEGER NOT NULL,
+            openid TEXT,
+            account_id INTEGER,
+            player_name TEXT DEFAULT '',
+            is_radiant INTEGER NOT NULL DEFAULT 0,
+            is_winner INTEGER NOT NULL DEFAULT 0,
+            hero_id INTEGER,
+            hero_name TEXT,
+            hero_icon TEXT,
+            kills INTEGER DEFAULT 0,
+            deaths INTEGER DEFAULT 0,
+            assists INTEGER DEFAULT 0,
+            gpm INTEGER DEFAULT 0,
+            xpm INTEGER DEFAULT 0,
+            hero_damage INTEGER DEFAULT 0,
+            tower_damage INTEGER DEFAULT 0,
+            healing INTEGER DEFAULT 0,
+            last_hits INTEGER DEFAULT 0,
+            denies INTEGER DEFAULT 0,
+            level INTEGER DEFAULT 1,
+            radar_kda REAL,
+            radar_eco REAL,
+            radar_exp REAL,
+            radar_dmg REAL,
+            radar_push REAL,
+            radar_sustain REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_cmp_openid
+            ON challenge_match_players(openid);
+        CREATE INDEX IF NOT EXISTS idx_cmp_challenge
+            ON challenge_match_players(challenge_id);
+        CREATE INDEX IF NOT EXISTS idx_cmp_match
+            ON challenge_match_players(match_id);
+    """)
+    await db.commit()
+
+
+async def _migrate_v10_challenge_match_meta(db: aiosqlite.Connection):
+    """v10: challenge_matches 补比赛级字段 duration/score/avg_mmr，DB 兜底读时不丢信息。"""
+    async with db.execute("PRAGMA table_info(challenge_matches)") as cursor:
+        rows = await cursor.fetchall()
+    cols = {r[1] for r in rows}
+    for col, decl in [
+        ("duration", "INTEGER DEFAULT 0"),
+        ("radiant_score", "INTEGER DEFAULT 0"),
+        ("dire_score", "INTEGER DEFAULT 0"),
+        ("avg_mmr", "INTEGER"),
+    ]:
+        if col not in cols:
+            await db.execute(f"ALTER TABLE challenge_matches ADD COLUMN {col} {decl}")
+    await db.commit()
+
+
+async def _migrate_v11_user_rank_history(db: aiosqlite.Connection):
+    """v11: user_rank_history 记录用户段位变化, 用于历史段位梯状图。
+
+    OpenDota 公开 API 不暴露历史段位(rank_tier_history 私有), 只能自己跟踪。
+    每次绑定/刷新档案时插入一条记录, 按年聚合后画梯状图。
+    同时回填一次: 把 users 表现有 rank_tier 作为初始记录。
+    """
+    await db.executescript("""
+        CREATE TABLE IF NOT EXISTS user_rank_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            openid TEXT NOT NULL,
+            account_id INTEGER NOT NULL,
+            rank_tier INTEGER,
+            rank_name TEXT,
+            recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_urh_openid ON user_rank_history(openid);
+        CREATE INDEX IF NOT EXISTS idx_urh_account ON user_rank_history(account_id);
+        CREATE INDEX IF NOT EXISTS idx_urh_recorded ON user_rank_history(recorded_at);
+    """)
+    # 一次性回填: 从 users 表把当前 rank_tier 作为最早记录 (使用 refreshed_at 时间戳)
+    await db.execute(
+        """INSERT INTO user_rank_history (openid, account_id, rank_tier, rank_name, recorded_at)
+           SELECT openid, account_id, rank_tier, rank_name,
+                  COALESCE(refreshed_at, CURRENT_TIMESTAMP)
+           FROM users
+           WHERE rank_tier IS NOT NULL
+             AND openid NOT IN (SELECT DISTINCT openid FROM user_rank_history)"""
+    )
+    await db.commit()
+
+
 async def init_db():
     db = await get_db()
     await db.executescript("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
@@ -147,6 +344,13 @@ async def init_db():
     await _migrate_v2_add_quota_type(db)
     await _migrate_v3_add_smurf_tables(db)
     await _migrate_v4_add_match_analysis_cache(db)
+    await _migrate_v5_add_users_table(db)
+    await _migrate_v6_add_challenge_tables(db)
+    await _migrate_v7_rank_tier_gates(db)
+    await _migrate_v8_challenge_matches(db)
+    await _migrate_v9_challenge_match_players(db)
+    await _migrate_v10_challenge_match_meta(db)
+    await _migrate_v11_user_rank_history(db)
     await db.close()
 
 

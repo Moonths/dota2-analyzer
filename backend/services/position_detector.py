@@ -22,6 +22,11 @@ POSITION_NAMES = {1: "Carry", 2: "Mid", 3: "Offlane", 4: "Soft Support", 5: "Har
 POSITION_LABELS = {1: "1号位", 2: "2号位", 3: "3号位", 4: "4号位", 5: "5号位"}
 
 
+def hero_primary(hero_id) -> int | None:
+    """英雄主位置（HERO_PRIMARY 已归一化为 int，供其他模块复用）"""
+    return _primary.get(hero_id)
+
+
 def detect_positions(players: list[dict]) -> list[dict]:
     """为每个玩家分配 1-5 号位"""
     radiant = [p for p in players if p.get("isRadiant")]

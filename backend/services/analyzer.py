@@ -58,16 +58,11 @@ SYSTEM_PROMPT = """你是一个 Dota 2 赛后分析师，风格毒舌又客观�
       "improvements": ["改进建议1", "改进建议2", "改进建议3"]
     }
   ],
-  "timeline": [
-    {
-      "time": 秒数,
-      "event_type": "kill/tower/roshan/item/aegis",
-      "description": "事件描述",
-      "importance": "low/medium/high/critical"
-    }
-  ],
   "game_summary": "整场比赛的一句话总结（幽默风格）"
 }
+
+注意：关键事件时间线 (timeline) 由系统根据比赛真实日志单独生成，你不需要输出 timeline 字段。
+点评时可以引用"比赛事件日志"里的真实事件（时间准确可信）。
 
 评分原则：
 - 每个选手都要给出一条位置评估，共10条
@@ -87,6 +82,167 @@ def get_api_config(provider: str) -> tuple[str, str, str]:
     if provider not in configs:
         provider = settings.default_ai_provider
     return configs[provider]
+
+
+def _fmt_time(sec: int) -> str:
+    return f"{int(sec) // 60}:{int(sec) % 60:02d}"
+
+
+def build_timeline(match_data: dict, heroes: dict[int, dict], max_events: int = 12) -> list[dict]:
+    """从比赛真实日志 (objectives/teamfights/purchase_log) 生成关键事件时间线。
+
+    数据全部来自 OpenDota 解析后的 replay 日志, 时间 100% 真实。
+    未解析的比赛 (无 objectives) 会降级为只用一血时间 + 终局比分。
+    """
+    duration = match_data.get("duration", 0)
+    players = match_data.get("players", [])
+    events: list[dict] = []
+
+    # 英雄中文名映射: player_slot -> 名字
+    slot_hero = {}
+    for p in players:
+        hero = heroes.get(p.get("hero_id"), {})
+        slot_hero[p.get("player_slot")] = cn_name(hero.get("localized_name", "")) or hero.get("localized_name") or "?"
+
+    def _side(team) -> str:
+        return {2: "天辉", 3: "夜魇"}.get(team, "")
+
+    # ── 一血 (未解析的比赛也有 first_blood_time) ──
+    fbt = match_data.get("first_blood_time")
+    fb_desc = "一血诞生"
+    if fbt:  # 0/None 说明数据缺失, 不生成假的一血事件
+        best = None
+        for p in players:
+            for k in p.get("kills_log") or []:
+                if best is None or abs(k.get("time", 0) - fbt) < abs(best[1] - fbt):
+                    best = (p, k.get("time", 0), k.get("key", ""))
+        if best and abs(best[1] - fbt) <= 5:
+            killer = slot_hero.get(best[0].get("player_slot"), "?")
+            fb_desc = f"一血！{killer} 拿下第一个人头"
+        events.append({
+            "time": fbt, "event_type": "kill",
+            "description": fb_desc, "importance": "medium",
+        })
+
+    # ── objectives: 推塔 / 兵营 / 肉山 / 不朽盾 ──
+    # 实际数据格式: type=CHAT_MESSAGE_FIRSTBLOOD / building_kill / CHAT_MESSAGE_ROSHAN_KILL / CHAT_MESSAGE_AEGIS
+    # building_kill 的 key 如 npc_dota_goodguys_tower1_bot / npc_dota_badguys_barracks / npc_dota_goodguys_fort
+    roshan_n = 0
+    tower_first = None
+    barracks_events = []
+    fort_events = []
+    tower_n = {"天辉": 0, "夜魇": 0}
+    for o in match_data.get("objectives") or []:
+        t = o.get("time", 0)
+        typ = str(o.get("type") or "").lower()
+        key = str(o.get("key") or "")
+        if t > duration:
+            continue
+        if "firstblood" in typ:
+            continue  # 上面已处理
+        if "roshan" in typ:
+            roshan_n += 1
+            events.append({
+                "time": t, "event_type": "roshan",
+                "description": f"{_side(o.get('team'))}击杀肉山（第 {roshan_n} 次）",
+                "importance": "high",
+            })
+        elif "aegis" in typ:
+            events.append({
+                "time": t, "event_type": "aegis",
+                "description": f"{_side(o.get('team'))}拾取不朽之守护",
+                "importance": "low",
+            })
+        elif "building" in typ or "tower" in typ:
+            attacker = "天辉" if (o.get("player_slot") or o.get("slot") or 0) < 128 else "夜魇"
+            owner = "天辉" if "goodguys" in key else "夜魇"
+            parts = key.replace("npc_dota_", "").split("_")
+            if "tower" in key:
+                pos = {"bot": "下路", "mid": "中路", "top": "上路"}.get(parts[-1], "")
+                tier = ""
+                for seg in parts:
+                    if seg.startswith("tower"):
+                        tier = {"tower1": "一塔", "tower2": "二塔", "tower3": "高地塔", "tower4": "高地塔"}.get(seg, "")
+                desc = f"{attacker}拆掉{owner}{pos}{tier}"
+                if tower_first is None or t < tower_first.get("time", t):
+                    tower_first = {"time": t, "desc": f"首塔告破！{desc}"}
+                elif tier == "高地塔":
+                    barracks_events.append({"time": t, "desc": f"{attacker}攻上{owner}高地"})
+            elif "barracks" in key:
+                barracks_events.append({"time": t, "desc": f"{attacker}拆掉{owner}兵营"})
+            elif "fort" in key:
+                fort_events.append({"time": t, "desc": f"{attacker}摧毁{owner}基地"})
+
+    if tower_first:
+        events.append({
+            "time": tower_first["time"], "event_type": "tower",
+            "description": tower_first["desc"], "importance": "high",
+        })
+    for b in barracks_events[:2]:
+        events.append({
+            "time": b["time"], "event_type": "tower",
+            "description": b["desc"], "importance": "high",
+        })
+    for f_ev in fort_events[:1]:
+        events.append({
+            "time": f_ev["time"], "event_type": "tower",
+            "description": f_ev["desc"], "importance": "critical",
+        })
+
+    # ── teamfights: 总死亡 >= 4 的团战 ──
+    fights = []
+    for tf in match_data.get("teamfights") or []:
+        tp = tf.get("players") or []
+        if len(tp) < 10:
+            continue
+        r_deaths = sum(1 for x in tp[:5] if x.get("deaths"))
+        d_deaths = sum(1 for x in tp[5:] if x.get("deaths"))
+        total = r_deaths + d_deaths
+        if total >= 4:
+            fights.append((tf.get("start", 0), total, r_deaths, d_deaths))
+    fights.sort(key=lambda x: -x[1])
+    for start, total, rd, dd in fights[:4]:
+        winner = "天辉" if rd < dd else "夜魇"
+        loser_deaths = min(rd, dd)
+        events.append({
+            "time": start, "event_type": "kill",
+            "description": f"爆发 {total} 人团战，{winner}赢下（对方阵亡 {max(rd, dd)} 人）",
+            "importance": "critical" if total >= 6 else "high",
+        })
+
+    # ── 关键装备: 圣剑 / 刷新球 ──
+    for p in players:
+        for entry in p.get("purchase_log") or []:
+            key = entry.get("key", "")
+            if key == "divine_rapier":
+                events.append({
+                    "time": entry.get("time", 0), "event_type": "item",
+                    "description": f"孤注一掷！{slot_hero.get(p.get('player_slot'), '?')} 购买圣剑",
+                    "importance": "critical",
+                })
+            elif key == "refresher":
+                events.append({
+                    "time": entry.get("time", 0), "event_type": "item",
+                    "description": f"{slot_hero.get(p.get('player_slot'), '?')} 购买刷新球",
+                    "importance": "medium",
+                })
+
+    # ── 终局事件 (未解析比赛的兜底, 保证时间线不为空) ──
+    if len(events) <= 1:
+        rs, ds = match_data.get("radiant_score", 0), match_data.get("dire_score", 0)
+        winner = "天辉" if match_data.get("radiant_win") else "夜魇"
+        events.append({
+            "time": max(duration - 30, 0), "event_type": "kill",
+            "description": f"{winner}推上高地，终局人头 {rs}:{ds}",
+            "importance": "critical",
+        })
+
+    # 按重要度取前 N 条, 再按时间排序
+    weight = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+    events.sort(key=lambda e: (-weight.get(e["importance"], 0), e["time"]))
+    events = events[:max_events]
+    events.sort(key=lambda e: e["time"])
+    return events
 
 
 def build_match_context(match_data: dict, heroes: dict[int, dict]) -> str:
@@ -147,6 +303,13 @@ def build_match_context(match_data: dict, heroes: dict[int, dict]) -> str:
                     items_bought.append(f"{item_key}@{time_min}分钟")
             if items_bought:
                 lines.append(f"  关键装备: {', '.join(items_bought[:8])}")
+
+    # 比赛真实事件日志 (点评时引用, 时间真实可信)
+    timeline = build_timeline(match_data, heroes)
+    if timeline:
+        lines.append(f"\n## 比赛事件日志 (真实数据, 时间准确)")
+        for ev in timeline:
+            lines.append(f"- [{_fmt_time(ev['time'])}] {ev['description']}")
 
     return "\n".join(lines)
 
@@ -293,55 +456,83 @@ async def analyze_match(match_data: dict, provider: str = "deepseek", model: str
                 _losers.sort(key=lambda x: float(x["kda"].split("/")[0]) / max(1, float(x["kda"].split("/")[1])))
                 sg_card = _losers[0]
 
-    # u6821u9a8c2uff1au65f6u95f4u7ebfu65f6u95f4u4e0du80fdu8d85u8fc7u6bd4u8d5bu65f6u957f
-    _max_time = overview.get("duration", 0)
-    for ev in ai_result.get("timeline", []):
-        if ev.get("time", 0) > _max_time:
-            ev["time"] = _max_time - 10
-    ai_result["timeline"] = [ev for ev in ai_result.get("timeline", []) if ev.get("time", 0) >= 0]
+    # timeline 用真实比赛日志生成 (AI 不再生成, 避免时间/事件编造)
+    real_timeline = build_timeline(match_data, heroes)
 
-    # u6821u6b63 AI u8fd4u56deu7684 position_evalsuff1au7528u63a2u6d4bu5668u5206u914du7684u6b63u786e position u8986u76d6uff0cu786eu4fddu6bcfu961f1-5u53f7u4f4du552fu4e00
-    _corrected_evals = []
-    _matched_cards = set()
-    for pe in ai_result.get("position_evals", []):
-        _pe_name = (pe.get("player_name") or "").strip()
-        _pe_hero = (pe.get("hero_name") or "").strip()
-        matched = False
-        for i, c in enumerate(player_cards):
-            if i in _matched_cards:
+    # 校正 AI 返回的 position_evals：与 player_cards 严格一一对应。
+    # 匹配不上的点评宁可丢弃，也不能错挂到其他英雄上，
+    # 否则前端渲染时会出现英雄数据和评论对不上的情况。
+    def _norm(s) -> str:
+        return "".join((s or "").lower().split())
+
+    _evals = list(ai_result.get("position_evals", []))
+    _eval_used = [False] * len(_evals)
+    _assigned: dict[int, dict] = {}  # player_cards 下标 -> 校正后的点评
+
+    def _bind(pe: dict, ci: int) -> None:
+        c = player_cards[ci]
+        pe["position"] = c["position"]
+        pe["player_name"] = c["player_name"]
+        pe["hero_name"] = c["hero_name"]
+        pe["account_id"] = c["account_id"]
+        pe["is_radiant"] = c["is_radiant"]
+        pe["is_qualified"] = bool(pe.get("is_qualified", True))
+        try:
+            pe["score"] = max(0, min(100, int(pe.get("score", 50))))
+        except (TypeError, ValueError):
+            pe["score"] = 50
+        _assigned[ci] = pe
+
+    def _name_match(pe: dict, c: dict) -> bool:
+        n, cn = _norm(pe.get("player_name")), _norm(c["player_name"])
+        return bool(n) and (n == cn or n in cn or cn in n)
+
+    def _hero_match(pe: dict, c: dict) -> bool:
+        h, ch = _norm(pe.get("hero_name")), _norm(c["hero_name"])
+        return bool(h) and (h == ch or h in ch or ch in h)
+
+    def _bind_round(match_fn) -> None:
+        for ei, pe in enumerate(_evals):
+            if _eval_used[ei]:
                 continue
-            if _pe_name and (c["player_name"].strip() == _pe_name or c["player_name"].strip().lower() == _pe_name.lower() or _pe_name in c["player_name"] or c["player_name"] in _pe_name):
-                pe["position"] = c["position"]
-                pe["player_name"] = c["player_name"]
-                pe["hero_name"] = c["hero_name"]
-                pe["is_radiant"] = c["is_radiant"]
-                pe["is_qualified"] = pe.get("is_qualified", True)
-                pe["score"] = max(0, min(100, pe.get("score", 50)))
-                _corrected_evals.append(pe)
-                _matched_cards.add(i)
-                matched = True
-                break
-        if not matched and _pe_hero:
-            for i, c in enumerate(player_cards):
-                if i in _matched_cards:
+            for ci, c in enumerate(player_cards):
+                if ci in _assigned:
                     continue
-                if c["hero_name"] == _pe_hero or _pe_hero in c["hero_name"] or c["hero_name"] in _pe_hero:
-                    pe["position"] = c["position"]
-                    pe["player_name"] = c["player_name"]
-                    pe["hero_name"] = c["hero_name"]
-                    pe["is_radiant"] = c["is_radiant"]
-                    pe["is_qualified"] = pe.get("is_qualified", True)
-                    pe["score"] = max(0, min(100, pe.get("score", 50)))
-                    _corrected_evals.append(pe)
-                    _matched_cards.add(i)
-                    matched = True
+                if match_fn(pe, c):
+                    _bind(pe, ci)
+                    _eval_used[ei] = True
                     break
-        if not matched:
-            pe["is_radiant"] = False
-            pe["is_qualified"] = pe.get("is_qualified", True)
-            pe["score"] = max(0, min(100, pe.get("score", 50)))
-            _corrected_evals.append(pe)
+
+    _bind_round(_name_match)
+    _bind_round(_hero_match)
+    # 第三轮：按 position 兜底（AI 拿不准名字时位置通常没错，但仅在该位置剩余卡片唯一时才认领）
+    for ei, pe in enumerate(_evals):
+        if _eval_used[ei]:
+            continue
+        candidates = [ci for ci, c in enumerate(player_cards)
+                      if ci not in _assigned and c["position"] == pe.get("position")]
+        if len(candidates) == 1:
+            _bind(pe, candidates[0])
+            _eval_used[ei] = True
+
+    # 没被 AI 点评到的选手补一条占位，保证每张卡都有点评且两个阵营数量正确
+    for ci, c in enumerate(player_cards):
+        if ci not in _assigned:
+            _assigned[ci] = {
+                "position": c["position"],
+                "player_name": c["player_name"],
+                "hero_name": c["hero_name"],
+                "account_id": c["account_id"],
+                "is_radiant": c["is_radiant"],
+                "is_qualified": True,
+                "score": 50,
+                "summary": "AI 漏掉了这位选手的点评，看看数据自行体会吧",
+                "highlights": [],
+                "improvements": [],
+            }
+
     # 按 (天辉优先, 位置升序) 排序，确保与 player_cards/radiant_players/dire_players 顺序一致
+    _corrected_evals = list(_assigned.values())
     _corrected_evals.sort(key=lambda e: (not e.get("is_radiant", False), e.get("position", 99)))
     ai_result["position_evals"] = _corrected_evals
 
@@ -349,7 +540,8 @@ async def analyze_match(match_data: dict, provider: str = "deepseek", model: str
         "mvp": {**mvp_card, "reason": ai_result["mvp"]["reason"]},
         "scapegoat": {**sg_card, "reason": ai_result["scapegoat"]["reason"]},
         "position_evals": ai_result["position_evals"],
-        "timeline": ai_result["timeline"],
+        "timeline": real_timeline,
+        "timeline_source": "game_log",
         "player_cards": player_cards,
         "radiant_players": radiant_players,
         "dire_players": dire_players,
