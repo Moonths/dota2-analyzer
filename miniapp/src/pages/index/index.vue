@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { onShareAppMessage } from '@dcloudio/uni-app'
 import { api } from '../../api/index.js'
 import { heroImg } from '../../utils/image.js'
 import { drawHomeCard } from '../../utils/shareImage.js'
@@ -151,12 +152,12 @@ function confirmQuota(kind) {
   }).catch(() => true)
 }
 
-function onShareAppMessage() {
-  return {
-    imageUrl: shareImagePath.value, title: '分锅大会 —— 谁尽力谁犯罪，AI判官为你揭晓',
-    path: '/pages/index/index',
-  }
-}
+// Vue3 setup 中必须通过 uni-app 导入注册，直接声明 function 不会生效
+onShareAppMessage(() => ({
+  imageUrl: shareImagePath.value,
+  title: '分锅大会 —— 谁尽力谁犯罪，AI判官为你揭晓',
+  path: '/pages/index/index',
+}))
 
 // ── 捕鱼执法 ──
 async function runSmurfCheck() {
@@ -354,7 +355,7 @@ function formatTime(ts) { return new Date(ts * 1000).toLocaleDateString('zh-CN')
       </view>
     </view>
   </view>
-  <canvas type="2d" id="shareCanvas" style="position:fixed;left:-9999px;top:0;width:250px;height:200px"></canvas>
+  <canvas type="2d" id="shareCanvas" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:.01;pointer-events:none;z-index:-1"></canvas>
 </template>
 
 <style scoped>

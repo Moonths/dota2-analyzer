@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onUnmounted } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
 import {
   api,
   getCachedAnalysisLocal,
@@ -174,9 +174,17 @@ const filteredEvals = computed(() => {
   const cards = isRadiant ? result.value.radiant_players : result.value.dire_players
   if (!cards || !cards.length) return []
   const teamEvals = (result.value.position_evals||[]).filter(e => e.is_radiant === isRadiant)
+  // 按 account_id/位置/名字精确匹配点评，避免按下标配对导致英雄数据和评论错位
+  const used = new Set()
   return cards.map((card,i) => {
-    const pe = teamEvals[i]
-    return pe ? {...pe, _card:card} : null
+    const pe =
+      teamEvals.find(e => e.account_id != null && e.account_id === card.account_id && !used.has(e)) ||
+      teamEvals.find(e => e.position === card.position && !used.has(e)) ||
+      teamEvals.find(e => e.player_name === card.player_name && !used.has(e)) ||
+      teamEvals[i]
+    if (!pe || used.has(pe)) return null
+    used.add(pe)
+    return {...pe, _card:card}
   }).filter(Boolean)
 })
 
@@ -243,7 +251,8 @@ async function checkSmurf() {
 function formatDuration(sec) { const m=Math.floor(sec/60); const s=sec%60; return `${m}:${s.toString().padStart(2,'0')}` }
 function goHome() { uni.navigateBack() }
 
-function onShareAppMessage() {
+// Vue3 setup 中必须通过 uni-app 导入注册，直接声明 function 不会生效
+onShareAppMessage(() => {
   if (!result.value) return { title: '分锅大会 — AI判官为你揭晓战犯', path: '/pages/index/index' }
   const sg = result.value.scapegoat
   return {
@@ -251,7 +260,7 @@ function onShareAppMessage() {
     path: `/pages/analysis/analysis?matchId=${matchId.value}`,
     imageUrl: shareImagePath.value || '',
   }
-}
+})
 </script>
 
 <template>
@@ -285,7 +294,7 @@ function onShareAppMessage() {
         <Timeline :events="result.timeline" />
       </view>
     </template>
-    <canvas type="2d" id="shareCanvas" style="position:fixed;left:-9999px;top:0;width:250px;height:200px"></canvas>
+    <canvas type="2d" id="shareCanvas" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:.01;pointer-events:none;z-index:-1"></canvas>
   </view>
 </template>
 

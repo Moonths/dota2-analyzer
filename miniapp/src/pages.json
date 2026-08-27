@@ -10,6 +10,44 @@
       }
     },
     {
+      "path": "pages/challenge/challenge",
+      "style": {
+        "navigationBarTitleText": "约战",
+        "navigationBarBackgroundColor": "#1a1a17",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#111110",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/challenge/detail",
+      "style": {
+        "navigationBarTitleText": "约战详情",
+        "navigationBarBackgroundColor": "#1a1a17",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#111110"
+      }
+    },
+    {
+      "path": "pages/challenge/match",
+      "style": {
+        "navigationBarTitleText": "比赛回顾",
+        "navigationBarBackgroundColor": "#1a1a17",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#111110"
+      }
+    },
+    {
+      "path": "pages/profile/profile",
+      "style": {
+        "navigationBarTitleText": "我的",
+        "navigationBarBackgroundColor": "#1a1a17",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#111110"
+      }
+    },
+    {
       "path": "pages/analysis/analysis",
       "style": {
         "navigationBarTitleText": "分析结果",
@@ -28,6 +66,32 @@
       }
     }
   ],
+  "tabBar": {
+    "color": "#a09b8f",
+    "selectedColor": "#d4a843",
+    "backgroundColor": "#1a1a17",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "分析",
+        "iconPath": "static/tabbar/analysis.png",
+        "selectedIconPath": "static/tabbar/analysis-active.png"
+      },
+      {
+        "pagePath": "pages/challenge/challenge",
+        "text": "约战",
+        "iconPath": "static/tabbar/challenge.png",
+        "selectedIconPath": "static/tabbar/challenge-active.png"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的",
+        "iconPath": "static/tabbar/profile.png",
+        "selectedIconPath": "static/tabbar/profile-active.png"
+      }
+    ]
+  },
   "globalStyle": {
     "navigationBarTextStyle": "white",
     "navigationBarTitleText": "分锅大会",

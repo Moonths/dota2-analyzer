@@ -1,6 +1,23 @@
 /**
  * 绘制分享卡片 — Canvas 2D API
+ *
+ * 之前导出一直失败的三个原因（已修）:
+ * 1. Canvas 2D 绘制命令是异步提交的，画完立即导出会拿到空图 → 现在等一帧(canvas.requestAnimationFrame)
+ * 2. canvasToTempFilePath 失败被静默吞掉 → 现在 console.error 输出 errMsg
+ * 3. canvas 移出视口(left:-9999px)部分真机不渲染 → 配合页面里改为视口内 opacity:0
  */
+
+function getDpr() {
+  try {
+    const win = uni.getWindowInfo ? uni.getWindowInfo() : null
+    if (win && win.pixelRatio) return win.pixelRatio
+  } catch (e) {}
+  try {
+    return uni.getSystemInfoSync().pixelRatio || 2
+  } catch (e) {
+    return 2
+  }
+}
 
 function getCanvas() {
   return new Promise((resolve) => {
@@ -9,11 +26,12 @@ function getCanvas() {
       .fields({ node: true, size: true })
       .exec((res) => {
         if (!res || !res[0] || !res[0].node) {
+          console.error('[shareImage] 找不到 #shareCanvas 节点')
           resolve(null)
           return
         }
         const canvas = res[0].node
-        const dpr = uni.getSystemInfoSync().pixelRatio
+        const dpr = getDpr()
         canvas.width = 250 * dpr
         canvas.height = 200 * dpr
         const ctx = canvas.getContext('2d')
@@ -23,14 +41,38 @@ function getCanvas() {
   })
 }
 
+/** 等一帧，让 Canvas 2D 的异步绘制命令真正提交后再导出 */
+function nextFrame(canvas, fn) {
+  if (canvas && typeof canvas.requestAnimationFrame === 'function') {
+    canvas.requestAnimationFrame(() => fn())
+  } else {
+    setTimeout(fn, 120)
+  }
+}
+
 function canvasToFile(canvas) {
   return new Promise((resolve) => {
-    uni.canvasToTempFilePath({
-      canvas,
-      quality: 0.9,
-      success(res) { resolve(res.tempFilePath) },
-      fail() { resolve('') },
-    })
+    const doExport = () => {
+      const opts = {
+        canvas,
+        // 导出尺寸与实际像素一致，避免模糊
+        destWidth: canvas.width,
+        destHeight: canvas.height,
+        fileType: 'png',
+        success(res) { resolve(res.tempFilePath) },
+        fail(err) {
+          console.error('[shareImage] canvasToTempFilePath 失败:', err && err.errMsg)
+          resolve('')
+        },
+      }
+      // #ifdef MP-WEIXIN
+      wx.canvasToTempFilePath({ ...opts })
+      // #endif
+      // #ifndef MP-WEIXIN
+      uni.canvasToTempFilePath({ ...opts })
+      // #endif
+    }
+    nextFrame(canvas, doExport)
   })
 }
 

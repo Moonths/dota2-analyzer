@@ -27,13 +27,23 @@ onMounted(async () => {
 
 const filteredEvals = computed(() => {
   if (!result.value || !result.value.position_evals) return []
-  const cards = activeTeam.value === 'radiant' ? result.value.radiant_players : result.value.dire_players
+  const isRadiant = activeTeam.value === 'radiant'
+  const cards = isRadiant ? result.value.radiant_players : result.value.dire_players
   if (!cards || !cards.length) return []
   const evals = result.value.position_evals || []
+  const teamEvals = evals.filter(e => e.is_radiant === isRadiant)
+  const pool = teamEvals.length ? teamEvals : evals
+  // 按 account_id/位置/名字精确匹配点评，避免英雄数据和评论错位
+  const used = new Set<any>()
   return cards
     .map(card => {
-      const pe = evals.find(e => e.player_name === card.player_name) || evals.find(e => e.position === card.position)
-      return pe ? { ...pe, _card: card } : null
+      const pe =
+        pool.find(e => e.account_id != null && e.account_id === card.account_id && !used.has(e)) ||
+        pool.find(e => e.position === card.position && !used.has(e)) ||
+        pool.find(e => e.player_name === card.player_name && !used.has(e))
+      if (!pe || used.has(pe)) return null
+      used.add(pe)
+      return { ...pe, _card: card }
     })
     .filter(Boolean) as any
 })

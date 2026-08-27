@@ -58,9 +58,11 @@ export const api = {
   },
   async analyze(matchId, provider, model) {
     await ensureLogin()
+    // 后端可能需要等 OpenDota 解析 replay (最长 ~40s) 再调 AI, 放宽超时
     return request('/analyze', {
       method: 'POST',
       body: JSON.stringify({ match_id: matchId, provider, model, openid: getOpenid() }),
+      timeout: 240000,
     })
   },
   getProviders() {
@@ -80,6 +82,123 @@ export const api = {
     await ensureLogin()
     return request(`/smurf-check/${playerId}?openid=${getOpenid()}`, { timeout: 60000 })
   },
+  async bindSteam(steamInput) {
+    await ensureLogin()
+    return request('/user/bind', {
+      method: 'POST',
+      body: JSON.stringify({ openid: getOpenid(), steam_input: steamInput }),
+      timeout: 30000,
+    })
+  },
+  async getMyProfile() {
+    await ensureLogin()
+    return request(`/user/profile?openid=${getOpenid()}`, { timeout: 30000 })
+  },
+  async unbindSteam() {
+    await ensureLogin()
+    return request('/user/unbind', {
+      method: 'POST',
+      body: JSON.stringify({ openid: getOpenid() }),
+    })
+  },
+  async getHistoryRank() {
+    await ensureLogin()
+    return request(`/user/history_rank?openid=${getOpenid()}`, { timeout: 60000 })
+  },
+
+  // ── 约战 ──
+  async createChallenge(payload) {
+    await ensureLogin()
+    return request('/challenge/create', {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, openid: getOpenid() }),
+    })
+  },
+  async listChallenges() {
+    await ensureLogin()
+    return request(`/challenge/list?openid=${getOpenid()}`)
+  },
+  async myChallenges() {
+    await ensureLogin()
+    return request(`/challenge/mine?openid=${getOpenid()}`)
+  },
+  async getChallengeDetail(id) {
+    // 分享空降用户首次打开也要先登录, 否则 openid=undefined 导致 joined/my_openid 判断错误
+    await ensureLogin()
+    return request(`/challenge/${id}?openid=${getOpenid()}`)
+  },
+  async joinChallenge(id, team) {
+    await ensureLogin()
+    return request(`/challenge/${id}/join`, {
+      method: 'POST',
+      body: JSON.stringify({ openid: getOpenid(), team }),
+    })
+  },
+  async leaveChallenge(id) {
+    await ensureLogin()
+    return request(`/challenge/${id}/leave`, {
+      method: 'POST',
+      body: JSON.stringify({ openid: getOpenid() }),
+    })
+  },
+  async switchTeam(id, team) {
+    await ensureLogin()
+    return request(`/challenge/${id}/switch_team`, {
+      method: 'POST',
+      body: JSON.stringify({ openid: getOpenid(), team }),
+    })
+  },
+  async shuffleTeams(id) {
+    await ensureLogin()
+    return request(`/challenge/${id}/shuffle`, {
+      method: 'POST',
+      body: JSON.stringify({ openid: getOpenid() }),
+    })
+  },
+  async swapParticipants(id, a, b) {
+    await ensureLogin()
+    return request(`/challenge/${id}/swap`, {
+      method: 'POST',
+      body: JSON.stringify({ openid: getOpenid(), participant_a: a, participant_b: b }),
+    })
+  },
+  async updateChallenge(id, payload) {
+    await ensureLogin()
+    return request(`/challenge/${id}/update`, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, openid: getOpenid() }),
+    })
+  },
+  async cancelChallenge(id) {
+    await ensureLogin()
+    return request(`/challenge/${id}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ openid: getOpenid() }),
+    })
+  },
+  async addChallengeMatch(id, matchId) {
+    await ensureLogin()
+    return request(`/challenge/${id}/match`, {
+      method: 'POST',
+      body: JSON.stringify({ openid: getOpenid(), match_id: matchId }),
+      timeout: 60000,
+    })
+  },
+  async listChallengeMatches(id) {
+    return request(`/challenge/${id}/matches`, { timeout: 60000 })
+  },
+  async removeChallengeMatch(id, matchId) {
+    await ensureLogin()
+    return request(`/challenge/${id}/match/${matchId}?openid=${getOpenid()}`, {
+      method: 'DELETE',
+    })
+  },
+}
+
+export function extractErr(e) {
+  let msg = (e && e.message) || '请求失败'
+  try { msg = JSON.parse(msg).detail || msg } catch (err) {}
+  return msg
 }
 
 export function getCachedAnalysisLocal(matchId) {
@@ -87,7 +206,10 @@ export function getCachedAnalysisLocal(matchId) {
     const raw = uni.getStorageSync(`${ANALYSIS_CACHE_PREFIX}${matchId}`)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    return parsed && parsed.share_id ? parsed : null
+    // timeline_source=game_log 表示真实比赛日志时间线;
+    // 旧缓存 (AI 编造时间) 一律失效重新分析
+    if (!parsed || !parsed.share_id || parsed.timeline_source !== 'game_log') return null
+    return parsed
   } catch (e) {
     return null
   }

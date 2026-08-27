@@ -146,10 +146,18 @@ const filteredEvals = computed(() => {
   const cards = isRadiant ? result.value.radiant_players : result.value.dire_players
   if (!cards || !cards.length) return []
   const teamEvals = (result.value.position_evals || []).filter(e => e.is_radiant === isRadiant)
+  // 按 account_id/位置/名字精确匹配点评，避免按下标配对导致英雄数据和评论错位
+  const used = new Set<any>()
   return cards
     .map((card, i) => {
-      const pe = teamEvals[i]
-      return pe ? { ...pe, _card: card } : null
+      const pe =
+        teamEvals.find(e => e.account_id != null && e.account_id === card.account_id && !used.has(e)) ||
+        teamEvals.find(e => e.position === card.position && !used.has(e)) ||
+        teamEvals.find(e => e.player_name === card.player_name && !used.has(e)) ||
+        teamEvals[i]
+      if (!pe || used.has(pe)) return null
+      used.add(pe)
+      return { ...pe, _card: card }
     })
     .filter(Boolean) as any
 })
