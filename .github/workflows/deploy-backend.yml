@@ -17,6 +17,7 @@ jobs:
           host: ${{ secrets.ECS_HOST }}
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_KEY }}
+          command_timeout: 30m
           script: |
             cd /var/www/dota2-analyzer
             git pull origin main
